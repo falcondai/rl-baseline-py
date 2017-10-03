@@ -106,6 +106,7 @@ if __name__ == '__main__':
     logger.info('Environment observation space %r', env.observation_space)
     logger.info('Environment action space %r', env.action_space)
     logger.info('Environment reward range %r', env.reward_range)
+    envs = [env_registry[env_id].make() for _ in range(2)]
 
     # Fix random seeds
     if args.seed is not None:
@@ -115,6 +116,7 @@ if __name__ == '__main__':
         np.random.seed(args.seed)
 
     # Set up training methods
+    # A2C(env.action_space, env.action_space)
     pi = Policy()
     logger.info(pi)
 
@@ -128,85 +130,92 @@ if __name__ == '__main__':
 
     # Upper bound of the batch size
     batch_size = args.batch_size
-    t, done = 0, True
+    # t, done = 0, True
+    t = 0
+    dones = [True] * len(envs)
     episode = 0
+    total_length = [0] * len(envs)
+    total_return = [0] * len(envs)
     while t < max_ticks:
-        # Reset the environment as needed
-        if done:
-            # Report the concluded episode
-            if t > 0:
-                logger.debug('Episodic return %g length %i', total_return, total_length)
-                if args.write_summary:
-                    summary_proto = Summary(value=[
-                        Summary.Value(tag='episodic/total_length', simple_value=total_length),
-                        Summary.Value(tag='episodic/total_return', simple_value=total_return),
-                    ])
-                    # Use the number of samples as a consistent measure regardless of batch sizes
-                    writer.add_summary(summary_proto, global_step=episode)
-
-            # Start a new episode
-            ob = env.reset()
-            done = False
-            total_return, total_length = 0, 0
-            episode += 1
-
-        # SAR containers
-        obs = []
-        prs = []
-        acs = []
-        vas = []
-        rs = []
-
-        # Interact and generate data
-        for i in range(batch_size):
-            obs.append(ob)
-            v_ob = Variable(torch.FloatTensor([ob]))
-            pr, va = pi(v_ob)
-            prs.append(pr)
-            vas.append(va)
-            # print(pr)
-            ac = torch.multinomial(pr, 1)
-            t_ac = ac.data[0, 0]
-            ob, r, done, extra = env.step(t_ac)
-            t += 1
-            total_length += 1
-            acs.append(t_ac)
-            if args.render:
-                env.render()
-            rs.append(r)
-            total_return += r
-            # End the batch if the episode ends
-            if done:
-                break
-
         # Update parameters
         optimizer.zero_grad()
+        for env_idx, env in enumerate(envs):
+            done = dones[env_idx]
+            # Reset the environment as needed
+            if done:
+                # Report the concluded episode
+                if t > 0:
+                    logger.debug('Episodic return %g length %i', total_return[env_idx], total_length[env_idx])
+                    if args.write_summary:
+                        summary_proto = Summary(value=[
+                            Summary.Value(tag='episodic/total_length', simple_value=total_length[env_idx]),
+                            Summary.Value(tag='episodic/total_return', simple_value=total_return[env_idx]),
+                        ])
+                        # Use the number of samples as a consistent measure regardless of batch sizes
+                        writer.add_summary(summary_proto, global_step=episode)
 
-        # Last observation
-        pr, va = pi(Variable(torch.FloatTensor([ob])))
-        va_to_go = 0. if done else va.view(-1)
-        vas.append(va)
-        # Advantages
-        advs = (Variable(torch.FloatTensor(np.cumsum(rs[::-1])[::-1])) + va_to_go - torch.cat(vas[:-1]).view(-1)).detach()
-        # Policy gradient
-        ps = torch.cat(prs)
-        # ac_ps = torch.gather(torch.cat(prs), 1, Variable(torch.LongTensor(acs)))
-        v_acs = torch.LongTensor(acs)
-        ac_ps = torch.cat(prs)[:, v_acs]
-        logps = ac_ps.log()
-        ac_ent = - torch.sum(ps * ps.log(), 1)
-        ac_ent = ac_ent.mean()
-        pg_loss = -(logps * advs.view(-1, 1)).mean()
+                # Start a new episode
+                ob = env.reset()
+                # done = False
+                dones[env_idx] = False
+                total_return[env_idx], total_length[env_idx] = 0, 0
+                episode += 1
 
-        # State value estimation
-        v_vas = torch.cat(vas).view(-1)
-        # va_loss = 0.5 * va_crit(Variable(torch.FloatTensor(rs)) + v_vas[1:], v_vas[:-1].detach())
-        # va_to_go = 0. if done else va.view(-1).detach()
-        va_loss = 0.5 * va_crit(v_vas[:-1], (Variable(torch.FloatTensor(np.cumsum(rs[::-1])[::-1])) + va_to_go).detach())
+            # SAR containers
+            obs = []
+            prs = []
+            acs = []
+            vas = []
+            rs = []
 
-        # Total objective function
-        loss = pg_loss + 0.5 * va_loss - 0.01 * ac_ent
-        loss.backward()
+            # Interact and generate data
+            for i in range(batch_size):
+                obs.append(ob)
+                v_ob = Variable(torch.FloatTensor([ob]))
+                pr, va = pi(v_ob)
+                prs.append(pr)
+                vas.append(va)
+                # print(pr)
+                ac = torch.multinomial(pr, 1)
+                t_ac = ac.data[0, 0]
+                ob, r, done, extra = env.step(t_ac)
+                dones[env_idx] = done
+                t += 1
+                total_length[env_idx] += 1
+                acs.append(t_ac)
+                if args.render:
+                    env.render()
+                rs.append(r)
+                total_return[env_idx] += r
+                # End the batch if the episode ends
+                if done:
+                    break
+
+            # Last observation
+            pr, va = pi(Variable(torch.FloatTensor([ob])))
+            va_to_go = 0. if done else va.view(-1)
+            vas.append(va)
+            # Advantages
+            advs = (Variable(torch.FloatTensor(np.cumsum(rs[::-1])[::-1])) + va_to_go - torch.cat(vas[:-1]).view(-1)).detach()
+            # Policy gradient
+            ps = torch.cat(prs)
+            # ac_ps = torch.gather(torch.cat(prs), 1, Variable(torch.LongTensor(acs)))
+            v_acs = torch.LongTensor(acs)
+            ac_ps = torch.cat(prs)[:, v_acs]
+            logps = ac_ps.log()
+            ac_ent = - torch.sum(ps * ps.log(), 1)
+            ac_ent = ac_ent.mean()
+            pg_loss = -(logps * advs.view(-1, 1)).mean()
+
+            # State value estimation
+            v_vas = torch.cat(vas).view(-1)
+            # va_loss = 0.5 * va_crit(Variable(torch.FloatTensor(rs)) + v_vas[1:], v_vas[:-1].detach())
+            # va_to_go = 0. if done else va.view(-1).detach()
+            va_loss = 0.5 * va_crit(v_vas[:-1], (Variable(torch.FloatTensor(np.cumsum(rs[::-1])[::-1])) + va_to_go).detach())
+
+            # Total objective function
+            loss = pg_loss + 0.5 * va_loss - 0.01 * ac_ent
+            loss.backward()
 
         # Report norms of parameters and gradient
         if args.write_summary:
