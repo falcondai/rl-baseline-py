@@ -9,7 +9,7 @@ import torch.nn.functional as f
 
 from core import StochasticPolicy, StateValue
 from registry import method_registry, model_registry, optimizer_registry
-from util import global_norm, log_format
+from util import global_norm, log_format, write_tb_event
 
 
 # Set up logger
@@ -30,27 +30,33 @@ class A2CModel(StochasticPolicy, StateValue, nn.Module):
 
 @method_registry.register('a2c')
 class A2CTrainer:
-    def __init__(self, env, model, optimizer, report_per_episode):
+    def __init__(self, env, model, optimizer, writer=None):
         assert isinstance(model, A2CModel), 'The model argument needs to be an instance of `A2CModel`.'
 
         self.env = env
         self.model = model
         self.optimizer = optimizer
 
-        self.report_per_episode = report_per_episode
+        # Optional utilities for logging
+        self.writer = writer
 
         # Total tick count
         self.total_ticks = 0
         self.va_crit = nn.MSELoss()
 
-    def train_for(self, max_ticks, batch_size, render=False):
+    def train_for(self, max_ticks, batch_size, episode_report_interval=1, step_report_interval=1, render=False):
         done, t, step, episode = True, 0, 0, 0
         while t < max_ticks:
             # Reset the environment as needed
             if done:
                 # Report the concluded episode
-                if t > 0:
-                    self.report_per_episode(episode, total_length, total_return)
+                if t > 0 and episode % episode_report_interval == 0:
+                    logger.info('Episode %i length %i return %g', episode, total_length, total_return)
+                    if self.writer is not None:
+                        write_tb_event(self.writer, episode, {
+                            'episodic/length': total_length,
+                            'episodic/return': total_return,
+                        })
 
                 # Start a new episode
                 ob = self.env.reset()
@@ -113,22 +119,22 @@ class A2CTrainer:
             loss = pg_loss + 0.5 * va_loss - 0.01 * ac_ent
             loss.backward()
 
-            # Report norms of parameters and gradient
-            if step % 10 == 0:
+            # Report model statistics
+            if step % step_report_interval == 0:
+                # Report norms of parameters and gradient
                 param_norm = global_norm(self.model.parameters())
                 grad_norm = global_norm([param.grad for param in self.model.parameters() if param.grad is not None])
-                # grad_norm = torch.nn.utils.clip_grad_norm(pi.parameters(), 100)
 
-                # step_summary_proto = Summary(value=[
-                #     Summary.Value(tag='train_loss/total_loss', simple_value=loss.data[0]),
-                #     Summary.Value(tag='train_loss/pg_loss', simple_value=pg_loss.data[0]),
-                #     Summary.Value(tag='train_loss/value_loss', simple_value=va_loss.data[0]),
-                #     Summary.Value(tag='train_loss/action_entropy', simple_value=np.exp(ac_ent.data[0])),
-                #     # Summary.Value(tag='train_extra/grad_norm', simple_value=grad_norm),
-                #     Summary.Value(tag='train_extra/grad_norm', simple_value=grad_norm.data[0]),
-                #     Summary.Value(tag='train_extra/param_norm', simple_value=param_norm.data[0]),
-                # ])
-                # writer.add_summary(step_summary_proto, global_step=t)
+                logger.info('Step %i total_loss %g pg_loss %g value_loss %g action_entropy %g grad_norm %g param_norm %g', step, loss.data[0], pg_loss.data[0], va_loss.data[0], np.exp(ac_ent.data[0]), grad_norm.data[0], param_norm.data[0],)
+                if self.writer is not None:
+                    write_tb_event(self.writer, step, {
+                        'train_loss/total_loss': loss.data[0],
+                        'train_loss/pg_loss': pg_loss.data[0],
+                        'train_loss/value_loss': va_loss.data[0],
+                        'train_loss/action_entropy': np.exp(ac_ent.data[0]),
+                        'train_extra/grad_norm': grad_norm.data[0],
+                        'train_extra/param_norm': param_norm.data[0],
+                    })
 
             self.optimizer.step()
             step += 1

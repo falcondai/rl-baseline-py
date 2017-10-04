@@ -26,6 +26,7 @@ class StochasticPolicy:
         super(StochasticPolicy, self).__init__(*args, **kwargs)
 
     def pi(self, ob):
+        # TODO return a function for non-discrete action spaces
         raise NotImplementedError
 
     def sample_ac(self, ac_prob):

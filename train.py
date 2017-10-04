@@ -28,8 +28,6 @@ logger.debug('PyTorch version %s', torch.__version__)
 
 if __name__ == '__main__':
     import time, argparse, os
-    from functools import partial
-    from util import report_per_episode
 
     parser = argparse.ArgumentParser()
 
@@ -38,9 +36,11 @@ if __name__ == '__main__':
     # TODO add checkpoint save/restore
     parser.add_argument('-l', '--log-dir', default='/tmp/ail/t', help='Path to log directory.')
     parser.add_argument('--no-summary', dest='write_summary', action='store_false', help='Do not write summary protobuf for TensorBoard.')
-    parser.add_argument('-lr', '--learning-rate', type=float, default=0.01, help='Initial learning rate.')
+    parser.add_argument('--report-per-episodes', dest='episode_report_interval', type=int, default=1, help='Report every N-many episodes.')
+    parser.add_argument('--report-per-steps', dest='step_report_interval', type=int, default=1, help='Report every N-many steps.')
+    parser.add_argument('-lr', '--learning-rate', type=float, default=0.05, help='Initial learning rate.')
     parser.add_argument('--seed', type=int, default=None, help='Random seed.')
-    parser.add_argument('--max-ticks', type=int, default=10**6, help='Maximum number of ticks to train.')
+    parser.add_argument('--max-ticks', type=int, default=10**4, help='Maximum number of ticks to train.')
     parser.add_argument('-b', '--batch-size', type=int, default=20, help='Batch size.')
     parser.add_argument('-o', '--optimizer', default='SGD', choices=optimizer_registry.all().keys(), help='Optimizer to use.')
     parser.add_argument('--render', action='store_true', help='Show the environment.')
@@ -93,10 +93,10 @@ if __name__ == '__main__':
     # Initialize
     mod = mod_cls(env.observation_space, env.action_space)
     opt = opt_cls(params=mod.parameters(), lr=args.learning_rate)
-    tra = met_cls(env, mod, opt, partial(report_per_episode, args.write_summary, writer, 1))
+    tra = met_cls(env, mod, opt, writer)
 
     # Training
-    tra.train_for(args.max_ticks, args.batch_size)
+    tra.train_for(args.max_ticks, args.batch_size, args.episode_report_interval, args.step_report_interval)
 
     # Wrap up
     if args.write_summary:

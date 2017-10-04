@@ -39,20 +39,11 @@ def q_from_rollout(sim, state, action, rollout_policy):
         total_return += r
     return total_return
 
-def report_per_episode(write_summary, writer, interval, episode, total_length, total_return):
-    # Report once per interval
-    if episode % interval == 0:
-        logger.info('Episode %i length %i return %g', episode, total_length, total_return)
-        if write_summary:
-            try:
-                # Tensorflow imports for writing summaries
-                from tensorflow import Summary
-                episode_summary_proto = Summary(value=[
-                    Summary.Value(tag='episodic/total_length', simple_value=total_length),
-                    Summary.Value(tag='episodic/total_return', simple_value=total_return),
-                ])
-                writer.add_summary(episode_summary_proto, global_step=episode)
-            except ImportError:
-                pass
-    else:
-        logger.debug('Episode %i length %i return %g', episode, total_length, total_return)
+def write_tb_event(writer, t, kv_pairs):
+    try:
+        # Tensorflow imports for writing summaries
+        from tensorflow import Summary
+        episode_summary_proto = Summary(value=[Summary.Value(tag=k, simple_value=v) for k, v in kv_pairs.items()])
+        writer.add_summary(episode_summary_proto, global_step=t)
+    except ImportError:
+        pass

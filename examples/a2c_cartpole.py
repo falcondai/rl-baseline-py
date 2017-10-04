@@ -38,14 +38,11 @@ class MyA2CModel(A2CModel):
         return torch.multinomial(ac_prob, 1).data[0, 0]
 
 
-from util import report_per_episode
-from functools import partial
-
 env = env_registry['gym.CartPole-v0'].make()
 mod = MyA2CModel(4, 2)
 print(mod)
 opt = optimizer_registry['SGD'](params=mod.parameters(), lr=0.01)
-tra = method_registry['a2c'](env, mod, opt, partial(report_per_episode, False, None, 1))
+tra = method_registry['a2c'](env, mod, opt)
 
 # Train for a little
-tra.train_for(1000, 20, False)
+tra.train_for(10000, 40)
