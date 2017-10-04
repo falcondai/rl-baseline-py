@@ -21,6 +21,34 @@ class GymEnvSpecWrapper(EnvSpec):
                             max_episode_seconds=env.spec.max_episode_seconds)
         return env
 
+class StochasticPolicy:
+    def __init__(self, *args, **kwargs):
+        super(StochasticPolicy, self).__init__(*args, **kwargs)
+
+    def pi(self, ob):
+        raise NotImplementedError
+
+    def sample_ac(self, ac_prob):
+        '''Sample an action based on the action probability `ac_prob`.'''
+        raise NotImplementedError
+
+
+class StateValue:
+    def __init__(self, *args, **kwargs):
+        super(StateValue, self).__init__(*args, **kwargs)
+
+    def va(self, ob):
+        raise NotImplementedError
+
+
+class ActionValue:
+    def __init__(self, *args, **kwargs):
+        super(ActionValue, self).__init__(*args, **kwargs)
+
+    def q(self, ob):
+        raise NotImplementedError
+
+
 class Simulator(Env):
     def load_state():
         raise NotImplementedError

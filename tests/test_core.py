@@ -7,4 +7,4 @@ def test_gym_env_spec_wrapper():
     spec = GymEnvSpecWrapper(registry.spec('CartPole-v1'))
     env = spec.make()
 
-    assert type(env) == TimeLimit, 'The gym environment should be wrapped by `TimeLimit` wrapper.'
+    assert isinstance(env, TimeLimit), 'The gym environment should be wrapped by `TimeLimit` wrapper.'

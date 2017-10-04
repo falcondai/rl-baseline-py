@@ -5,7 +5,7 @@ from gym.envs.classic_control import CartPoleEnv
 log_format = '[%(asctime)s %(filename)s:%(lineno)d] %(levelname)s: %(message)s'
 logging.basicConfig(format=log_format)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 def global_norm(parameters):
     squares = 0
@@ -25,3 +25,34 @@ def set_cartpole_state(wrapped_cartpole_sim, state):
     wrapped_cartpole_sim.unwrapped.state = cartpole_state
     wrapped_cartpole_sim.unwrapped.steps_beyond_done = None
     wrapped_cartpole_sim._elapsed_steps = elapsed_steps
+
+def q_from_rollout(sim, state, action, rollout_policy):
+    # Start simulator at the current state
+    ob = sim.reset()
+    set_cartpole_state(sim, state)
+    # And the current action
+    ob, r, done, extra = sim.step(action)
+    total_return = r
+    while not done:
+        a = rollout_policy(ob)
+        ob, r, done, extra = sim.step(a)
+        total_return += r
+    return total_return
+
+def report_per_episode(write_summary, writer, interval, episode, total_length, total_return):
+    # Report once per interval
+    if episode % interval == 0:
+        logger.info('Episode %i length %i return %g', episode, total_length, total_return)
+        if write_summary:
+            try:
+                # Tensorflow imports for writing summaries
+                from tensorflow import Summary
+                episode_summary_proto = Summary(value=[
+                    Summary.Value(tag='episodic/total_length', simple_value=total_length),
+                    Summary.Value(tag='episodic/total_return', simple_value=total_return),
+                ])
+                writer.add_summary(episode_summary_proto, global_step=episode)
+            except ImportError:
+                pass
+    else:
+        logger.debug('Episode %i length %i return %g', episode, total_length, total_return)

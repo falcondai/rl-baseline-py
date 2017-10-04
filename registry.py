@@ -28,4 +28,5 @@ class Registry:
 # Global registries
 env_registry = Registry()
 optimizer_registry = Registry()
-# model_registry = Registry()
+method_registry = Registry()
+model_registry = Registry()
