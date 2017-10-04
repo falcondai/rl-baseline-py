@@ -30,6 +30,7 @@ class A2CModel(StochasticPolicy, StateValue, nn.Module):
 
 @method_registry.register('a2c')
 class A2CTrainer:
+    '''Advantage actor-critic'''
     def __init__(self, env, model, optimizer, writer=None):
         assert isinstance(model, A2CModel), 'The model argument needs to be an instance of `A2CModel`.'
 
@@ -101,9 +102,8 @@ class A2CTrainer:
             advs = (Variable(torch.FloatTensor(np.cumsum(rs[::-1])[::-1])) + va_to_go - torch.cat(vas[:-1]).view(-1)).detach()
             # Policy gradient
             ps = torch.cat(prs)
-            # ac_ps = torch.gather(torch.cat(prs), 1, Variable(torch.LongTensor(acs)))
-            v_acs = torch.LongTensor(acs)
-            ac_ps = torch.cat(prs)[:, v_acs]
+            v_acs = Variable(torch.LongTensor(acs)).view(-1, 1)
+            ac_ps = torch.cat(prs).gather(1, v_acs)
             logps = ac_ps.log()
             ac_ent = - torch.sum(ps * ps.log(), 1)
             ac_ent = ac_ent.mean()
