@@ -35,7 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--environment', default='gym.CartPole-v0', choices=env_registry.all().keys(), help='Environment id.')
     parser.add_argument('-m', '--model', default='a2c.linear', choices=model_registry.all().keys(), help='Model id.')
     # TODO add checkpoint save/restore
-    parser.add_argument('-l', '--log-dir', default='/tmp/ail/t', help='Path to log directory.')
+    parser.add_argument('-l', '--log-dir', default='./logs', help='Path to log directory.')
     parser.add_argument('--no-summary', dest='write_summary', action='store_false', help='Do not write summary protobuf for TensorBoard.')
     parser.add_argument('--episode-report-interval', type=int, default=1, help='Report every N-many episodes.')
     parser.add_argument('--step-report-interval', type=int, default=1, help='Report every N-many steps.')
@@ -59,7 +59,7 @@ if __name__ == '__main__':
             from tensorflow import summary
             logger.debug('Imported TensorFlow.')
             # Summary writer and summary path
-            summary_path = os.path.join(args.log_dir, '%i' % time.time())
+            summary_path = os.path.join(args.log_dir, 'summary')
             logger.info('Summary are written to %s' % summary_path)
             writer = summary.FileWriter(summary_path, flush_secs=10)
         except ImportError:
