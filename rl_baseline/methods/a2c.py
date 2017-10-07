@@ -22,19 +22,19 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-class A2CModel(StochasticPolicy, StateValue, nn.Module):
+class A2cModel(StochasticPolicy, StateValue, nn.Module):
     def __init__(self, *args, **kwargs):
-        super(A2CModel, self).__init__(*args, **kwargs)
+        super(A2cModel, self).__init__(*args, **kwargs)
 
     def pi_va(self, ob):
         raise NotImplementedError
 
 
 @method_registry.register('a2c')
-class A2CTrainer:
+class A2cTrainer:
     '''Advantage actor-critic'''
     def __init__(self, env, model, optimizer, writer=None):
-        assert isinstance(model, A2CModel), 'The model argument needs to be an instance of `A2CModel`.'
+        assert isinstance(model, A2cModel), 'The model argument needs to be an instance of `A2cModel`.'
 
         self.env = env
         self.model = model
@@ -143,9 +143,9 @@ class A2CTrainer:
 
 
 @model_registry.register('a2c.linear')
-class A2CLinearModel(A2CModel):
+class A2cLinearModel(A2cModel):
     def __init__(self, ob_space, ac_space):
-        super(A2CLinearModel, self).__init__()
+        super(A2cLinearModel, self).__init__()
         assert isinstance(ob_space, spaces.Box) and len(ob_space.shape) == 1, '`ob_space` can only support rank-1 `spaces.Box`.'
         assert isinstance(ac_space, spaces.Discrete), '`ac_space` can only support `spaces.Discrete`.'
 

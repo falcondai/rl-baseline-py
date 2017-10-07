@@ -5,7 +5,7 @@ def test_a2c_on_cartpole():
     import numpy as np
     from torch import optim
 
-    from rl_baseline.methods.a2c import A2CTrainer, A2CLinearModel
+    from rl_baseline.methods.a2c import A2cTrainer, A2cLinearModel
 
     # Fix seed for replication
     seed = 777
@@ -15,11 +15,11 @@ def test_a2c_on_cartpole():
     env = gym.make('CartPole-v0')
     env.seed(seed)
 
-    mod = A2CLinearModel(env.observation_space, env.action_space)
+    mod = A2cLinearModel(env.observation_space, env.action_space)
     opt = optim.SGD(params=mod.parameters(), lr=0.01)
-    tra = A2CTrainer(env, mod, opt)
+    tra = A2cTrainer(env, mod, opt)
 
     # Train for a little
-    tra.train_for(1000, 20)
+    tra.train_for(500, 20, step_report_interval=10)
 
     # TODO evaluate and assert its performance
