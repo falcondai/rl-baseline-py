@@ -1,3 +1,5 @@
+from six.moves import xrange
+
 import logging, itertools
 
 import numpy as np
@@ -93,7 +95,7 @@ class ReplayBuffer:
 
     def sample_sars(self, size):
         '''Sample with replacement (s, a, r, s') tuples of `size`-length arrays.'''
-        idxes = [np.random.randint(self.occupancy) for _ in range(size)]
+        idxes = [np.random.randint(self.occupancy) for _ in xrange(size)]
         return self.obs[idxes], self.acs[idxes], self.rs[idxes], self.next_obs[idxes], self.dones[idxes]
 
 
@@ -118,7 +120,7 @@ class DqnTrainer:
         self.replay_buffer = ReplayBuffer(50000, env.observation_space, env.action_space)
 
 
-    def train_for(self, max_ticks, update_interval=1, batch_size=32, episode_report_interval=1, step_report_interval=1, render=False):
+    def train_for(self, max_ticks, update_interval=1, batch_size=32, minimal_replay_buffer_occupancy=1000, episode_report_interval=1, step_report_interval=1, render=False):
         '''
         Args:
             max_ticks : int
@@ -152,7 +154,7 @@ class DqnTrainer:
                 episode += 1
 
             # Interact and generate data
-            for i in range(1):
+            for i in xrange(1):
                 v_ob = Variable(torch.FloatTensor([ob]))
                 q = self.model.q(v_ob)
                 # TODO add arguments for schedule
@@ -172,7 +174,7 @@ class DqnTrainer:
                     break
 
             # Start training after accumulating some data
-            if self.replay_buffer.occupancy > 1000:
+            if self.replay_buffer.occupancy > minimal_replay_buffer_occupancy:
                 # Update parameters
                 self.optimizer.zero_grad()
 
@@ -246,13 +248,3 @@ class DqnMlp(DqnModel):
             net = self.non_linearity(net)
         net = self.fc_layers[-1](net)
         return net
-
-# from registration import env_registry, optimizer_registry
-# env = env_registry['gym.CartPole-v0'].make()
-# mod = DqnLinearModel(env.observation_space, env.action_space)
-# print(mod)
-# opt = optimizer_registry['SGD'](params=mod.parameters(), lr=0.001)
-# tra = method_registry['dqn'](env, mod, opt)
-#
-# # Train for a little
-# tra.train_for(100000, 20)

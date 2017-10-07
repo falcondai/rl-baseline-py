@@ -1,3 +1,5 @@
+from six.moves import xrange
+
 import logging
 
 import numpy as np
@@ -73,7 +75,7 @@ class A2CTrainer:
             rs = []
 
             # Interact and generate data
-            for i in range(batch_size):
+            for i in xrange(batch_size):
                 obs.append(ob)
                 v_ob = Variable(torch.FloatTensor([ob]))
                 pr, va = self.model.pi_va(v_ob)
