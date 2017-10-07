@@ -96,7 +96,7 @@ class A2CTrainer:
             self.optimizer.zero_grad()
 
             # Last observation
-            va_to_go = 0. if done else self.model.va(Variable(torch.FloatTensor([ob]))).view(-1)
+            va_to_go = Variable(torch.zeros(1)) if done else self.model.va(Variable(torch.FloatTensor([ob]))).view(-1)
             vas.append(va)
             # Advantages
             advs = (Variable(torch.FloatTensor(np.cumsum(rs[::-1])[::-1])) + va_to_go - torch.cat(vas[:-1]).view(-1)).detach()

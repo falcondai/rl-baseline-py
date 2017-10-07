@@ -4,8 +4,10 @@ from gym.envs.registration import EnvSpec
 class GymEnvSpecWrapper(EnvSpec):
     '''Wraps an existing `gym.envs.registration.EnvSpec` object to accommodate the custom `Env` instantiation behaviors in gym.'''
     def __init__(self, spec):
-        '''Args:
-        spec : `EnvSpec`. An existing environment specification.
+        '''
+        Args:
+            spec : `EnvSpec`
+                An existing environment specification.
         '''
         self._spec = spec
         self.id = self._spec.id

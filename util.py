@@ -47,3 +47,13 @@ def write_tb_event(writer, t, kv_pairs):
         writer.add_summary(episode_summary_proto, global_step=t)
     except ImportError:
         pass
+
+def linear_schedule(start_y, end_y, start_t, end_t, t):
+    if t < start_t:
+        return start_y
+    if end_t < t:
+        return end_y
+    return (end_y - start_y) * (t - start_t) / (end_t - start_t) + start_y
+
+def copy_params(from_model, to_model):
+    to_model.load_state_dict(from_model.state_dict())
