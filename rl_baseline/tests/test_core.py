@@ -1,4 +1,4 @@
-from core import GymEnvSpecWrapper
+from rl_baseline.core import GymEnvSpecWrapper
 
 def test_gym_env_spec_wrapper():
     from gym.envs.registration import registry

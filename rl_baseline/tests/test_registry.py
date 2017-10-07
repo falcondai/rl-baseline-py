@@ -1,4 +1,4 @@
-from registry import Registry
+from rl_baseline.registry import Registry
 
 reg = Registry()
 

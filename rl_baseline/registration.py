@@ -1,9 +1,10 @@
 import inspect
-from core import GymEnvSpecWrapper
-from registry import env_registry, optimizer_registry, method_registry, model_registry
 from gym.envs.registration import registry
 from torch import optim
-from methods import a2c, dqn
+
+from rl_baseline.registry import env_registry, optimizer_registry, method_registry, model_registry
+from rl_baseline.core import GymEnvSpecWrapper
+from rl_baseline.methods import a2c, dqn
 
 # Register all envs in Gym
 for spec in registry.all():

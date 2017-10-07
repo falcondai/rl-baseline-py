@@ -8,9 +8,9 @@ from torch.autograd import Variable
 import torch.nn.functional as f
 from torch.nn.utils import clip_grad_norm
 
-from core import StochasticPolicy, StateValue, ActionValue
-from registry import method_registry, model_registry, optimizer_registry
-from util import global_norm, log_format, write_tb_event, linear_schedule, copy_params
+from rl_baseline.core import StochasticPolicy, StateValue, ActionValue
+from rl_baseline.registry import method_registry, model_registry, optimizer_registry
+from rl_baseline.util import global_norm, log_format, write_tb_event, linear_schedule, copy_params
 
 
 # Set up logger

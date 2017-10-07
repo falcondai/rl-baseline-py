@@ -2,6 +2,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from six.moves import xrange
+
 import logging, itertools
 import numpy as np
 
@@ -14,9 +16,8 @@ from torch.nn import functional as f
 import gym
 gym.undo_logger_setup()
 
-from registration import env_registry, optimizer_registry, model_registry, method_registry
-
-from util import log_format, global_norm, get_cartpole_state, set_cartpole_state, copy_params
+from rl_baseline.registration import env_registry, optimizer_registry, model_registry, method_registry
+from rl_baseline.util import log_format, global_norm, get_cartpole_state, set_cartpole_state, copy_params
 
 logging.basicConfig(format=log_format)
 logger = logging.getLogger(__name__)

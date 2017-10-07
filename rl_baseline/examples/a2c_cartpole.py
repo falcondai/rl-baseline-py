@@ -1,8 +1,9 @@
-from registration import env_registry, method_registry, optimizer_registry
 import torch
 from torch import nn
 import torch.nn.functional as f
-from methods.a2c import A2CModel
+
+from rl_baseline.registration import env_registry, method_registry, optimizer_registry
+from rl_baseline.methods.a2c import A2CModel
 
 # Define your own model. As long as it inherits from the compatible model class, the desired trainer (in this case, A2C) can use it.
 class MyA2CModel(A2CModel):

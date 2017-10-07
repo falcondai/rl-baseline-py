@@ -1,10 +1,11 @@
 def test_a2c_on_cartpole():
     # Train a simple A2C linear model to solve CartPole-v0
-    from methods.a2c import A2CTrainer, A2CLinearModel
     import gym
     import torch
     import numpy as np
     from torch import optim
+
+    from rl_baseline.methods.a2c import A2CTrainer, A2CLinearModel
 
     # Fix seed for replication
     seed = 777

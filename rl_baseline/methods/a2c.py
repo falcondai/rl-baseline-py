@@ -7,9 +7,9 @@ from torch import nn, optim
 from torch.autograd import Variable
 import torch.nn.functional as f
 
-from core import StochasticPolicy, StateValue
-from registry import method_registry, model_registry, optimizer_registry
-from util import global_norm, log_format, write_tb_event
+from rl_baseline.core import StochasticPolicy, StateValue
+from rl_baseline.registry import method_registry, model_registry, optimizer_registry
+from rl_baseline.util import global_norm, log_format, write_tb_event
 
 
 # Set up logger
