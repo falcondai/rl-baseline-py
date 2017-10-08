@@ -23,7 +23,18 @@ class GymEnvSpecWrapper(EnvSpec):
                             max_episode_seconds=env.spec.max_episode_seconds)
         return env
 
-class StochasticPolicy:
+
+class Policy:
+    '''The abstraction of an agent. The main purpose of this class is to provide an API for evaluation.'''
+    def __init__(self, *args, **kwargs):
+        super(Policy, self).__init__(*args, **kwargs)
+
+    def act(self, ob):
+        '''Returns an action given the observation'''
+        raise NotImplementedError
+
+
+class StochasticPolicy(Policy):
     def __init__(self, *args, **kwargs):
         super(StochasticPolicy, self).__init__(*args, **kwargs)
 

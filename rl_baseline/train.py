@@ -17,7 +17,7 @@ import gym
 gym.undo_logger_setup()
 
 from rl_baseline.registration import env_registry, optimizer_registry, model_registry, method_registry
-from rl_baseline.util import log_format, global_norm, get_cartpole_state, set_cartpole_state, copy_params
+from rl_baseline.util import log_format, global_norm, get_cartpole_state, set_cartpole_state, copy_params, make_checkpoint, fix_random_seeds
 
 logging.basicConfig(format=log_format)
 logger = logging.getLogger(__name__)
@@ -34,7 +34,6 @@ if __name__ == '__main__':
 
     parser.add_argument('-e', '--environment', default='gym.CartPole-v0', choices=env_registry.all().keys(), help='Environment id.')
     parser.add_argument('-m', '--model', default='a2c.linear', choices=model_registry.all().keys(), help='Model id.')
-    # TODO add checkpoint save/restore
     parser.add_argument('-l', '--log-dir', default='./logs', help='Path to log directory.')
     parser.add_argument('--no-summary', dest='write_summary', action='store_false', help='Do not write summary protobuf for TensorBoard.')
     parser.add_argument('--episode-report-interval', type=int, default=1, help='Report every N-many episodes.')
@@ -77,10 +76,7 @@ if __name__ == '__main__':
 
     # Fix random seeds
     if args.seed is not None:
-        logger.info('Set random seeds to %i' % args.seed)
-        env.seed(args.seed)
-        torch.manual_seed(args.seed)
-        np.random.seed(args.seed)
+        fix_random_seeds(args.seed, env, torch, np)
 
     # Set up the method, model and optimizer
     method_key = args.model.split('.')[0]
@@ -110,3 +106,9 @@ if __name__ == '__main__':
     # Wrap up
     if args.write_summary:
         writer.close()
+
+    # Save checkpoint
+    checkpoint = make_checkpoint(args.max_ticks, 0, 100, opt, mod)
+    checkpoint_path = os.path.join(args.log_dir, 'checkpoint_t%i.pt' % (args.max_ticks, ))
+    torch.save(checkpoint, checkpoint_path)
+    logger.info('Saved checkpoint at %s', checkpoint_path)

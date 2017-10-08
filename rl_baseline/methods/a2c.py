@@ -194,3 +194,8 @@ class A2cLinearModel(A2cModel):
         ac = torch.multinomial(ac_prob, 1)
         t_ac = ac.data[0, 0]
         return t_ac
+
+    def act(self, ob):
+        v_ob = Variable(torch.FloatTensor([ob]))
+        ac_prob, ac = self.pi(v_ob).max(1)
+        return ac.data[0, 0]

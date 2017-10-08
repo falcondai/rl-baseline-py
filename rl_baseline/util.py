@@ -1,6 +1,7 @@
 import logging
 from gym.envs.classic_control import CartPoleEnv
 
+
 # Set up logging format
 log_format = '[%(asctime)s %(filename)s:%(lineno)d] %(levelname)s: %(message)s'
 logging.basicConfig(format=log_format)
@@ -57,3 +58,20 @@ def linear_schedule(start_y, end_y, start_t, end_t, t):
 
 def copy_params(from_model, to_model):
     to_model.load_state_dict(from_model.state_dict())
+
+def make_checkpoint(tick, episode, step, optimizer, model, extra={}):
+    '''Construct a dictionary that contains the complete training state.'''
+    return {
+        'tick': tick,
+        'episode': episode,
+        'step': step,
+        'optimizer': optimizer.state_dict(),
+        'model': model.state_dict(),
+        'extra': extra,
+    }
+
+def fix_random_seeds(seed, env, torch, numpy):
+    logger.info('Set random seeds to %i' % seed)
+    env.seed(seed)
+    torch.manual_seed(seed)
+    numpy.random.seed(seed)

@@ -10,7 +10,7 @@ from torch.autograd import Variable
 import torch.nn.functional as f
 from torch.nn.utils import clip_grad_norm
 
-from rl_baseline.core import StochasticPolicy, StateValue, ActionValue
+from rl_baseline.core import Policy, StateValue, ActionValue
 from rl_baseline.registry import method_registry, model_registry, optimizer_registry
 from rl_baseline.util import global_norm, log_format, write_tb_event, linear_schedule, copy_params
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-class DqnModel(ActionValue, StateValue, nn.Module):
+class DqnModel(Policy, ActionValue, StateValue, nn.Module):
     def __init__(self, exploration_type, *args, **kwargs):
         super(DqnModel, self).__init__(*args, **kwargs)
         assert exploration_type in ['softmax', 'epsilon'], 'Only supports `softmax` and `epsilon`-greedy exploration strategies.'
@@ -59,6 +59,11 @@ class DqnModel(ActionValue, StateValue, nn.Module):
             t_ac = ac.data[0]
 
         return t_ac
+
+    def act(self, ob):
+        v_ob = Variable(torch.FloatTensor([ob]))
+        q = self.q(v_ob)
+        return self.sample_ac(q, 0)
 
 
 class ReplayBuffer:
