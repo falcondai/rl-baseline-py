@@ -159,7 +159,7 @@ class DqnTrainer:
                 episode += 1
 
             # Interact and generate data
-            for i in xrange(1):
+            for i in xrange(update_interval):
                 v_ob = Variable(torch.FloatTensor([ob]))
                 q = self.model.q(v_ob)
                 # TODO add arguments for schedule
@@ -231,7 +231,7 @@ class DqnTrainer:
 
 @model_registry.register('dqn.mlp')
 class DqnMlp(DqnModel):
-    def __init__(self, ob_space, ac_space, exploration_type='epsilon', hiddens=[64], non_linearity=f.relu):
+    def __init__(self, ob_space, ac_space, exploration_type='epsilon', hiddens=[64], non_linearity=f.elu):
         super(DqnMlp, self).__init__(exploration_type)
         assert isinstance(ob_space, spaces.Box) and len(ob_space.shape) == 1, '`ob_space` can only support rank-1 `spaces.Box`.'
         assert isinstance(ac_space, spaces.Discrete), '`ac_space` can only support `spaces.Discrete`.'
