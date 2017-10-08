@@ -12,7 +12,7 @@ from torch.nn.utils import clip_grad_norm
 
 from rl_baseline.core import Policy, StateValue, ActionValue
 from rl_baseline.registry import method_registry, model_registry, optimizer_registry
-from rl_baseline.util import global_norm, log_format, write_tb_event, linear_schedule, copy_params
+from rl_baseline.util import global_norm, log_format, write_tb_event, linear_schedule, copy_params, save_checkpoint
 
 
 # Set up logger
@@ -107,7 +107,7 @@ class ReplayBuffer:
 @method_registry.register('dqn')
 class DqnTrainer:
     '''Q-learning'''
-    def __init__(self, env, model, target_model, optimizer, writer=None):
+    def __init__(self, env, model, target_model, optimizer, writer=None, log_dir=None):
         assert isinstance(model, DqnModel), 'The model argument needs to be an instance of `DqnModel`.'
 
         self.env = env
@@ -117,6 +117,7 @@ class DqnTrainer:
 
         # Optional utilities for logging
         self.writer = writer
+        self.log_dir = log_dir
 
         # Total tick count
         self.total_ticks = 0
@@ -125,7 +126,7 @@ class DqnTrainer:
         self.replay_buffer = ReplayBuffer(50000, env.observation_space, env.action_space)
 
 
-    def train_for(self, max_ticks, update_interval=1, batch_size=32, minimal_replay_buffer_occupancy=1000, episode_report_interval=1, step_report_interval=1, render=False):
+    def train_for(self, max_ticks, update_interval=1, batch_size=32, minimal_replay_buffer_occupancy=1000, episode_report_interval=1, step_report_interval=1, checkpoint_interval=100, render=False):
         '''
         Args:
             max_ticks : int
@@ -201,6 +202,12 @@ class DqnTrainer:
 
                 # Total objective function
                 loss = q_loss
+
+                # Save a checkpoint
+                if self.log_dir is not None and step % checkpoint_interval == 0:
+                    save_checkpoint(t, episode, step, self.optimizer, self.model, self.log_dir)
+
+                # Compute gradient
                 loss.backward()
 
                 # Clip the gradient
@@ -212,7 +219,7 @@ class DqnTrainer:
                     param_norm = global_norm(self.model.parameters())
                     grad_norm = global_norm([param.grad for param in self.model.parameters() if param.grad is not None])
 
-                    logger.info('Step %i total_loss %g value_loss %g epsilon %g grad_norm %g param_norm %g', step, loss.data[0], q_loss.data[0], epsilon, grad_norm.data[0], param_norm.data[0],)
+                    logger.info('Step %i total_loss %g value_loss %g epsilon %g grad_norm %g param_norm %g', step, loss.data[0], q_loss.data[0], epsilon, grad_norm.data[0], param_norm.data[0])
                     if self.writer is not None:
                         write_tb_event(self.writer, t, {
                             'train_loss/total_loss': loss.data[0],
@@ -224,6 +231,8 @@ class DqnTrainer:
 
                 self.optimizer.step()
                 step += 1
+
+        return t, episode, step
 
 
 # TODO add tabular Q model

@@ -4,7 +4,7 @@ from __future__ import print_function
 
 from six.moves import xrange
 
-import logging, itertools
+import logging, itertools, os
 import numpy as np
 
 import torch
@@ -17,7 +17,8 @@ import gym
 gym.undo_logger_setup()
 
 from rl_baseline.registration import env_registry, optimizer_registry, model_registry, method_registry
-from rl_baseline.util import log_format, global_norm, get_cartpole_state, set_cartpole_state, copy_params, make_checkpoint, fix_random_seeds
+from rl_baseline.util import log_format, global_norm, get_cartpole_state, set_cartpole_state, copy_params, save_checkpoint, fix_random_seeds, create_tb_writer
+
 
 logging.basicConfig(format=log_format)
 logger = logging.getLogger(__name__)
@@ -51,20 +52,15 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    # Create the log directory
+    if not os.path.exists(args.log_dir):
+        os.makedirs(args.log_dir)
+        logger.debug('Created the log directory %s', args.log_dir)
+
     # Summary for TensorBoard monitoring
     if args.write_summary:
-        try:
-            # Tensorflow imports for writing summaries
-            from tensorflow import summary
-            logger.debug('Imported TensorFlow.')
-            # Summary writer and summary path
-            summary_path = os.path.join(args.log_dir, 'summary')
-            logger.info('Summary are written to %s' % summary_path)
-            writer = summary.FileWriter(summary_path, flush_secs=10)
-        except ImportError:
-            logger.warn('TensorFlow cannot be imported. TensorBoard summaries will not be generated. Consider to install the CPU-version TensorFlow.')
-            args.write_summary = False
-            writer = None
+        summary_dir = os.path.join(args.log_dir, 'train')
+        writer = create_tb_writer(summary_dir)
 
     # Set up the environment
     env_id = args.environment
@@ -98,17 +94,19 @@ if __name__ == '__main__':
         logger.info('Parameter %s size %r', name, param.size())
     logger.info('Parameters has %i elements.', param_count)
     opt = opt_cls(params=mod.parameters(), lr=args.learning_rate)
-    tra = met_cls(env, mod, target_mod, opt, writer)
+    tra = met_cls(env, mod, target_mod, opt, writer, args.log_dir)
 
     # Training
-    tra.train_for(max_ticks=args.max_ticks, batch_size=args.batch_size, episode_report_interval=args.episode_report_interval, step_report_interval=args.step_report_interval)
+    tick, episode, step = tra.train_for(
+        max_ticks=args.max_ticks,
+        batch_size=args.batch_size,
+        episode_report_interval=args.episode_report_interval,
+        step_report_interval=args.step_report_interval,
+    )
 
     # Wrap up
     if args.write_summary:
         writer.close()
 
-    # Save checkpoint
-    checkpoint = make_checkpoint(args.max_ticks, 0, 100, opt, mod)
-    checkpoint_path = os.path.join(args.log_dir, 'checkpoint_t%i.pt' % (args.max_ticks, ))
-    torch.save(checkpoint, checkpoint_path)
-    logger.info('Saved checkpoint at %s', checkpoint_path)
+    # Save one last checkpoint
+    save_checkpoint(tick, episode, step, opt, mod, args.log_dir)

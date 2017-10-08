@@ -11,7 +11,7 @@ import torch.nn.functional as f
 
 from rl_baseline.core import StochasticPolicy, StateValue
 from rl_baseline.registry import method_registry, model_registry, optimizer_registry
-from rl_baseline.util import global_norm, log_format, write_tb_event
+from rl_baseline.util import global_norm, log_format, write_tb_event, save_checkpoint
 
 
 # Set up logger
@@ -33,7 +33,7 @@ class A2cModel(StochasticPolicy, StateValue, nn.Module):
 @method_registry.register('a2c')
 class A2cTrainer:
     '''Advantage actor-critic'''
-    def __init__(self, env, model, optimizer, writer=None):
+    def __init__(self, env, model, optimizer, writer=None, log_dir=None):
         assert isinstance(model, A2cModel), 'The model argument needs to be an instance of `A2cModel`.'
 
         self.env = env
@@ -42,12 +42,13 @@ class A2cTrainer:
 
         # Optional utilities for logging
         self.writer = writer
+        self.log_dir = log_dir
 
         # Total tick count
         self.total_ticks = 0
         self.va_crit = nn.MSELoss()
 
-    def train_for(self, max_ticks, batch_size, episode_report_interval=1, step_report_interval=1, render=False):
+    def train_for(self, max_ticks, batch_size, episode_report_interval=1, step_report_interval=1, checkpoint_interval=10, render=False):
         done, t, step, episode = True, 0, 0, 0
         while t < max_ticks:
             # Reset the environment as needed
@@ -119,6 +120,12 @@ class A2cTrainer:
 
             # Total objective function
             loss = pg_loss + 0.5 * va_loss - 0.01 * ac_ent
+
+            # Save a checkpoint
+            if self.log_dir is not None and step % checkpoint_interval == 0:
+                save_checkpoint(t, episode, step, self.optimizer, self.model, self.log_dir)
+
+            # Compute gradient
             loss.backward()
 
             # Report model statistics
@@ -140,6 +147,8 @@ class A2cTrainer:
 
             self.optimizer.step()
             step += 1
+
+        return t, episode, step
 
 
 @model_registry.register('a2c.linear')
@@ -198,4 +207,4 @@ class A2cLinearModel(A2cModel):
     def act(self, ob):
         v_ob = Variable(torch.FloatTensor([ob]))
         ac_prob, ac = self.pi(v_ob).max(1)
-        return ac.data[0, 0]
+        return ac.data[0]

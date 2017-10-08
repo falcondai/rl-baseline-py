@@ -1,6 +1,7 @@
-import logging
-from gym.envs.classic_control import CartPoleEnv
+import logging, os, glob
 
+from gym.envs.classic_control import CartPoleEnv
+import torch
 
 # Set up logging format
 log_format = '[%(asctime)s %(filename)s:%(lineno)d] %(levelname)s: %(message)s'
@@ -40,12 +41,12 @@ def q_from_rollout(sim, state, action, rollout_policy):
         total_return += r
     return total_return
 
-def write_tb_event(writer, t, kv_pairs):
+def write_tb_event(writer, tick, kv_pairs):
     try:
         # Tensorflow imports for writing summaries
         from tensorflow import Summary
         episode_summary_proto = Summary(value=[Summary.Value(tag=k, simple_value=v) for k, v in kv_pairs.items()])
-        writer.add_summary(episode_summary_proto, global_step=t)
+        writer.add_summary(episode_summary_proto, global_step=tick)
     except ImportError:
         pass
 
@@ -70,8 +71,42 @@ def make_checkpoint(tick, episode, step, optimizer, model, extra={}):
         'extra': extra,
     }
 
+def save_checkpoint(tick, episode, step, optimizer, model, log_dir, extra={}):
+    checkpoint = make_checkpoint(
+        tick=tick,
+        episode=episode,
+        step=step,
+        optimizer=optimizer,
+        model=model,
+        extra=extra,
+    )
+    checkpoint_path = os.path.join(log_dir, 'checkpoint-%i.pt' % tick)
+    torch.save(checkpoint, checkpoint_path)
+    logger.info('Saved checkpoint at %s', checkpoint_path)
+
 def fix_random_seeds(seed, env, torch, numpy):
     logger.info('Set random seeds to %i' % seed)
     env.seed(seed)
     torch.manual_seed(seed)
     numpy.random.seed(seed)
+
+def get_latest_checkpoint(log_dir):
+    pt_paths = glob.glob(os.path.join(log_dir, '*.pt'))
+    if len(pt_paths) == 0:
+        logger.warn('There is no *.pt checkpoint files at %s' % log_dir)
+        return None
+    latest_checkpoint_path = max(pt_paths, key=os.path.getmtime)
+    return latest_checkpoint_path
+
+def create_tb_writer(summary_dir):
+    try:
+        # Tensorflow imports for writing summaries
+        from tensorflow import summary
+        logger.debug('Imported TensorFlow.')
+        # Summary writer and summary path
+        logger.info('Summary are written to %s' % summary_dir)
+        writer = summary.FileWriter(summary_dir, flush_secs=10)
+    except ImportError:
+        logger.warn('TensorFlow cannot be imported. TensorBoard summaries will not be generated. Consider to install the CPU-version TensorFlow.')
+        writer = None
+    return writer
