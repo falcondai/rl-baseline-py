@@ -37,7 +37,7 @@ if __name__ == '__main__':
 
     # Check for conflicting arguments
     # Evaluating a non-trainable policy
-    if not isinstance(model_registry[args.model], nn.Module):
+    if not issubclass(model_registry[args.model], nn.Module):
         assert args.checkpoint is None and args.log_dir is None, 'No checkpoint is needed for non-trainable policies.'
         assert args.watch is False, 'Cannot use watch mode with non-trainable policies.'
     else:

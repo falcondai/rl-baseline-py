@@ -98,11 +98,14 @@ class EnvSim(Simulator):
         self.env = env
         super(EnvSim, self).__init__(*args, **kwargs)
 
-    def reset(self):
-        return self.env.reset()
+    def _step(self, ac):
+        return self.env._step(ac)
 
-    def step(self, ac):
-        return self.env.step(ac)
+    def _reset(self):
+        return self.env._reset()
 
-    def render(self):
-        return self.env.render()
+    def _render(self, mode='human', close=False):
+        return self.env._render(mode, close)
+
+    def _seed(self, seed=None):
+        return self.env._seed(seed)

@@ -61,7 +61,7 @@ class DqnModel(Policy, ActionValue, StateValue, nn.Module):
         return t_ac
 
     def act(self, ob):
-        v_ob = Variable(torch.FloatTensor([ob]))
+        v_ob = Variable(torch.FloatTensor([ob.astype('float')]))
         q = self.q(v_ob)
         return self.sample_ac(q, 0)
 
@@ -161,7 +161,7 @@ class DqnTrainer:
 
             # Interact and generate data
             for i in xrange(update_interval):
-                v_ob = Variable(torch.FloatTensor([ob]))
+                v_ob = Variable(torch.FloatTensor([ob.astype('float')]))
                 q = self.model.q(v_ob)
                 # TODO add arguments for schedule
                 epsilon = linear_schedule(1, 0.02, 0, 10000, t)

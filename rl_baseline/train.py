@@ -17,7 +17,7 @@ import gym
 gym.undo_logger_setup()
 
 from rl_baseline.registration import env_registry, optimizer_registry, model_registry, method_registry
-from rl_baseline.util import log_format, global_norm, get_cartpole_state, set_cartpole_state, copy_params, save_checkpoint, fix_random_seeds, create_tb_writer
+from rl_baseline.util import log_format, global_norm, copy_params, save_checkpoint, fix_random_seeds, create_tb_writer
 
 
 logging.basicConfig(format=log_format)
