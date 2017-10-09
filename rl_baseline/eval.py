@@ -5,6 +5,7 @@ from operator import xor
 
 import numpy as np
 import torch
+from torch import nn
 
 from rl_baseline.registration import env_registry, model_registry
 from rl_baseline.util import log_format, fix_random_seeds, write_tb_event, get_latest_checkpoint, create_tb_writer
@@ -21,9 +22,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--log-dir', help='Path to the log directory containing checkpoints.')
     parser.add_argument('-c', '--checkpoint', help='Path to a specific checkpoint.')
-    parser.add_argument('-n', '--n-episodes', type=int, default=10)
-    parser.add_argument('-e', '--environment', default='gym.CartPole-v0')
-    parser.add_argument('-m', '--model', default='dqn.mlp')
+    parser.add_argument('-n', '--n-episodes', type=int, default=10, help='Number of episodes to sample.')
+    parser.add_argument('-e', '--environment', default='gym.CartPole-v0', help='Environment id.')
+    parser.add_argument('-m', '--model', default='dqn.mlp', help='Model name.')
     parser.add_argument('--render', action='store_true', help='Show the environment.')
     parser.add_argument('-s', '--seed', type=int, help='Random seed.')
 
@@ -34,16 +35,21 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # Conflicting arguments
-    assert xor(bool(args.checkpoint), bool(args.log_dir)), 'Please only provide path to the log directory OR a specific checkpoint.'
-    assert args.log_dir if args.watch else True, 'Watch mode requires `--log-dir` argument to present.'
+    # Check for conflicting arguments
+    # Evaluating a non-trainable policy
+    if not isinstance(model_registry[args.model], nn.Module):
+        assert args.checkpoint is None and args.log_dir is None, 'No checkpoint is needed for non-trainable policies.'
+        assert args.watch is False, 'Cannot use watch mode with non-trainable policies.'
+    else:
+        assert bool(args.checkpoint) ^ bool(args.log_dir), 'Please only provide path to the log directory OR a specific checkpoint.'
+        assert args.log_dir if args.watch else True, 'Watch mode requires `--log-dir` argument to present.'
 
     # Init
     env = env_registry[args.environment].make()
     mod = model_registry[args.model](env.observation_space, env.action_space)
 
-    # Watch mode
     if args.watch:
+        # Watch mode
         # Setup for tracking the best model evaluated so far
         if args.save_best_model:
             best_model_dir = os.path.join(args.log_dir, 'best')
@@ -92,16 +98,17 @@ if __name__ == '__main__':
                         logger.warn(e)
     else:
         # Single-run evaluation
-        # Load checkpoint
-        if args.log_dir is not None:
-            # Load the latest checkpoint from the log directory
-            checkpoint_path = get_latest_checkpoint(args.log_dir)
-            assert checkpoint_path != None, 'There is no *.pt checkpoint files at %s' % args.log_dir
-        else:
-            checkpoint_path = args.checkpoint
-        logger.info('Loading model from %s', checkpoint_path)
-        checkpoint = torch.load(checkpoint_path)
-        mod.load_state_dict(checkpoint['model'])
+        if isinstance(model_registry[args.model], nn.Module):
+            # Load checkpoint
+            if args.log_dir is not None:
+                # Load the latest checkpoint from the log directory
+                checkpoint_path = get_latest_checkpoint(args.log_dir)
+                assert checkpoint_path != None, 'There is no *.pt checkpoint files at %s' % args.log_dir
+            else:
+                checkpoint_path = args.checkpoint
+            logger.info('Loading model from %s', checkpoint_path)
+            checkpoint = torch.load(checkpoint_path)
+            mod.load_state_dict(checkpoint['model'])
 
         # Fix random seed
         if args.seed is not None:

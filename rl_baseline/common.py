@@ -6,15 +6,17 @@ import numpy as np
 
 from rl_baseline.util import log_format
 from rl_baseline.core import Policy
+from rl_baseline.registry import model_registry
 
 
 logging.basicConfig(format=log_format)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+@model_registry.register('random')
 class RandomPolicy(Policy):
     '''A simple and useful baseline policy.'''
-    def __init__(self, ac_space):
+    def __init__(self, ob_space, ac_space):
         self.ac_space = ac_space
 
     def act(self, ob):
@@ -43,3 +45,5 @@ def evaluate_policy(env, model, n_episodes, render):
     logger.info('Episode length mean/max/min/median %g/%g/%g/%g', np.mean(lens), np.max(lens), np.min(lens), np.median(lens))
 
     return rets, lens
+
+# TODO train_policy
