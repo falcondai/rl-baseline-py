@@ -1,13 +1,14 @@
 import inspect
-from gym.envs.registration import registry
+from gym.envs.registration import registry as gym_env_registry
 from torch import optim
 
-from rl_baseline.registry import env_registry, optimizer_registry, method_registry, model_registry
-from rl_baseline.core import GymEnvSpecWrapper
+from rl_baseline.registry import env_registry, optimizer_registry, method_registry, model_registry, sim_registry
+from rl_baseline.core import Spec, GymEnvSpecWrapper
 from rl_baseline.methods import a2c, dqn
+from rl_baseline.sims.cartpole import CartPoleSim
 
 # Register all envs in Gym
-for spec in registry.all():
+for spec in gym_env_registry.all():
     spec = GymEnvSpecWrapper(spec)
     env_registry.register_to(spec, 'gym.%s' % spec.id)
 
@@ -16,3 +17,12 @@ for kls_name, kls in inspect.getmembers(optim):
     # Filter out all optimizer classes
     if inspect.isclass(kls):
         optimizer_registry.register_to(kls, kls_name)
+
+# Register simulators
+# CartPole envs
+sim_registry.register_to(
+    Spec('sim/gym.CartPole-v0', CartPoleSim, spec=env_registry['gym.CartPole-v0']),
+    'gym.CartPole-v0')
+sim_registry.register_to(
+    Spec('sim/gym.CartPole-v1', CartPoleSim, spec=env_registry['gym.CartPole-v1']),
+    'gym.CartPole-v1')

@@ -4,6 +4,7 @@ import torch.nn.functional as f
 
 from rl_baseline.registration import env_registry, method_registry, optimizer_registry
 from rl_baseline.methods.a2c import A2cModel
+from rl_baseline.common import evaluate_policy
 
 # Define your own model. As long as it inherits from the compatible model class, the desired trainer (in this case, A2C) can use it.
 class MyA2cModel(A2cModel):
@@ -47,3 +48,6 @@ tra = method_registry['a2c'](env, mod, opt)
 
 # Train for a little
 tra.train_for(10000, 40)
+
+# Evaluate
+evaluate_policy(env, mod, 10, False)

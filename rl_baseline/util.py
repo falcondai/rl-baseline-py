@@ -1,6 +1,5 @@
 import logging, os, glob
 
-from gym.envs.classic_control import CartPoleEnv
 import torch
 
 # Set up logging format
@@ -14,32 +13,6 @@ def global_norm(parameters):
     for parameter in parameters:
         squares += parameter.norm() ** 2
     return squares.sqrt()
-
-# Simulation for CartPole-v1
-def get_cartpole_state(wrapped_cartpole_env):
-    assert isinstance(wrapped_cartpole_env.unwrapped, CartPoleEnv), 'Only accepts CartPole-v1 environment.'
-    # Unwrap a wrapped CartPoleEnv
-    return (wrapped_cartpole_env._elapsed_steps, wrapped_cartpole_env.unwrapped.state)
-
-def set_cartpole_state(wrapped_cartpole_sim, state):
-    assert isinstance(wrapped_cartpole_sim.unwrapped, CartPoleEnv), 'Only accepts CartPole-v1 environment.'
-    elapsed_steps, cartpole_state = state
-    wrapped_cartpole_sim.unwrapped.state = cartpole_state
-    wrapped_cartpole_sim.unwrapped.steps_beyond_done = None
-    wrapped_cartpole_sim._elapsed_steps = elapsed_steps
-
-def q_from_rollout(sim, state, action, rollout_policy):
-    # Start simulator at the current state
-    ob = sim.reset()
-    set_cartpole_state(sim, state)
-    # And the current action
-    ob, r, done, extra = sim.step(action)
-    total_return = r
-    while not done:
-        a = rollout_policy(ob)
-        ob, r, done, extra = sim.step(a)
-        total_return += r
-    return total_return
 
 def write_tb_event(writer, tick, kv_pairs):
     try:

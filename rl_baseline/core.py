@@ -1,7 +1,19 @@
 from gym import Env, Wrapper
 from gym.envs.registration import EnvSpec
 
-class GymEnvSpecWrapper(EnvSpec):
+
+class Spec:
+    '''Store the entry point and parameters for items on the reigistry.'''
+    def __init__(self, id, entry_point, **kwargs):
+        self.id = id
+        self.entry_point = entry_point
+        self.kwargs = kwargs
+
+    def make(self):
+        return self.entry_point(**self.kwargs)
+
+
+class GymEnvSpecWrapper(Spec):
     '''Wraps an existing `gym.envs.registration.EnvSpec` object to accommodate the custom `Env` instantiation behaviors in gym.'''
     def __init__(self, spec):
         '''
@@ -9,8 +21,10 @@ class GymEnvSpecWrapper(EnvSpec):
             spec : `EnvSpec`
                 An existing environment specification.
         '''
+        assert isinstance(spec, EnvSpec), 'This is designed to wrap existing `EnvSpec` from `gym` only.'
         self._spec = spec
         self.id = self._spec.id
+        super(GymEnvSpecWrapper, self).__init__(self.id, spec._entry_point)
 
     def make(self):
         # Wrap TimeLimit over environment if needed
@@ -64,8 +78,31 @@ class ActionValue:
 
 
 class Simulator(Env):
-    def load_state():
+    '''A simulator that needs to extract/estimate state from an environment and can set its state.'''
+    def __init__(self, *args, **kwargs):
+        super(Simulator, self).__init__(*args, **kwargs)
+
+    def set_state(state):
+        '''Sets the simulator state.'''
         raise NotImplementedError
 
-    def save_state():
+    @staticmethod
+    def get_state(env):
+        '''Extracts and returns the state from an environment.'''
         raise NotImplementedError
+
+
+class EnvSim(Simulator):
+    '''A simulator that consists of an enviroment.'''
+    def __init__(self, env, *args, **kwargs):
+        self.env = env
+        super(EnvSim, self).__init__(*args, **kwargs)
+
+    def reset(self):
+        return self.env.reset()
+
+    def step(self, ac):
+        return self.env.step(ac)
+
+    def render(self):
+        return self.env.render()
