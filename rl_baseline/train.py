@@ -17,7 +17,7 @@ import gym
 gym.undo_logger_setup()
 
 from rl_baseline.registration import env_registry, optimizer_registry, model_registry, method_registry
-from rl_baseline.util import log_format, global_norm, copy_params, save_checkpoint, fix_random_seeds, create_tb_writer
+from rl_baseline.util import log_format, global_norm, copy_params, Saver, fix_random_seeds, create_tb_writer
 
 
 logging.basicConfig(format=log_format)
@@ -46,6 +46,8 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--verbose', action='store_true', help='Show more logs.')
     # TODO add LR scheduler
     parser.add_argument('--lr-scheduler', default='none', help='Scheduler for learning rates.')
+    # TODO restore from checkpoint
+    parser.add_argument('-f', '--restore', help='Path to an existing checkpoint.')
     # TODO add GPU support
     parser.add_argument('--gpu', dest='gpu_id', default=None, help='GPU id to use.')
 
@@ -97,6 +99,9 @@ if __name__ == '__main__':
     mod_args, extra_args = mod_parser.parse_known_args(extra_args)
     logger.debug('Parsed model args %r', mod_args)
 
+    if len(extra_args) > 0:
+        logger.warn('Ignoring extra arguments %r', extra_args)
+        
     logger.info('Using method %s' % met_cls)
     logger.info('Using model %s' % mod_cls)
     logger.info('Using optimizer %s' % opt_cls)
@@ -112,7 +117,8 @@ if __name__ == '__main__':
         logger.info('Parameter %s size %r', name, param.size())
     logger.info('Parameters has %i elements.', param_count)
     opt = opt_cls(params=mod.parameters(), lr=args.learning_rate)
-    tra = met_cls(env, mod, target_mod, opt, writer=writer, log_dir=args.log_dir, **vars(met_args))
+    saver = Saver(args.log_dir, mod, opt, mod_args, met_args)
+    tra = met_cls(env, mod, target_mod, opt, writer=writer, saver=saver, **vars(met_args))
 
     # Training
     tick, episode, step = tra.train_for(
@@ -127,4 +133,4 @@ if __name__ == '__main__':
         writer.close()
 
     # Save one last checkpoint
-    save_checkpoint(tick, episode, step, opt, mod, args.log_dir)
+    saver.save_checkpoint(tick, episode, step)

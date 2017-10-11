@@ -34,29 +34,28 @@ def linear_schedule(start_y, end_y, start_t, end_t, t):
 def copy_params(from_model, to_model):
     to_model.load_state_dict(from_model.state_dict())
 
-def make_checkpoint(tick, episode, step, optimizer, model, extra={}):
-    '''Construct a dictionary that contains the complete training state.'''
-    return {
-        'tick': tick,
-        'episode': episode,
-        'step': step,
-        'optimizer': optimizer.state_dict(),
-        'model': model.state_dict(),
-        'extra': extra,
-    }
+class Saver:
+    '''Keeps track of some important objects and makes checkpointing more convenient.'''
+    def __init__(self, log_dir, model, optimizer, model_args, method_args):
+        self.log_dir = log_dir
+        self.model = model
+        self.optimizer = optimizer
+        self.model_args = model_args
+        self.method_args = method_args
 
-def save_checkpoint(tick, episode, step, optimizer, model, log_dir, extra={}):
-    checkpoint = make_checkpoint(
-        tick=tick,
-        episode=episode,
-        step=step,
-        optimizer=optimizer,
-        model=model,
-        extra=extra,
-    )
-    checkpoint_path = os.path.join(log_dir, 'checkpoint-%i.pt' % tick)
-    torch.save(checkpoint, checkpoint_path)
-    logger.info('Saved checkpoint at %s', checkpoint_path)
+    def save_checkpoint(self, tick, episode, step):
+        checkpoint = {
+            'tick': tick,
+            'episode': episode,
+            'step': step,
+            'optimizer': self.optimizer.state_dict(),
+            'model': self.model.state_dict(),
+            'model_args': self.model_args,
+            'method_args': self.method_args,
+        }
+        checkpoint_path = os.path.join(self.log_dir, 'checkpoint-%i.pt' % tick)
+        torch.save(checkpoint, checkpoint_path)
+        logger.info('Saved checkpoint at %s', checkpoint_path)
 
 def fix_random_seeds(seed, env, torch, numpy):
     logger.info('Set random seeds to %i' % seed)

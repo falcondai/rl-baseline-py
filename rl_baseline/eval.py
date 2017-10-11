@@ -25,6 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--n-episodes', type=int, default=10, help='Number of episodes to sample.')
     parser.add_argument('-e', '--environment', default='gym.CartPole-v0', help='Environment id.')
     parser.add_argument('-m', '--model', default='dqn.mlp', help='Model name.')
+    parser.add_argument('-i', '--ignore', dest='ignore_saved_args', action='store_true', help='Ignore the model arguments in the checkpoint.')
     parser.add_argument('--render', action='store_true', help='Show the environment.')
     parser.add_argument('-s', '--seed', type=int, help='Random seed.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Show more logs.')
@@ -47,17 +48,24 @@ if __name__ == '__main__':
     if not issubclass(model_registry[args.model], nn.Module):
         assert args.checkpoint is None and args.log_dir is None, 'No checkpoint is needed for non-trainable policies.'
         assert args.watch is False, 'Cannot use watch mode with non-trainable policies.'
+        use_checkpoint = False
     else:
         assert bool(args.checkpoint) ^ bool(args.log_dir), 'Please only provide path to the log directory OR a specific checkpoint.'
         assert args.log_dir if args.watch else True, 'Watch mode requires `--log-dir` argument to present.'
+        use_checkpoint = True
 
     # Init
     env = env_registry[args.environment].make()
     mod_cls = model_registry[args.model]
-    mod_parser = mod_cls.build_parser(prefix='m')
-    mod_args, extra_args = mod_parser.parse_known_args(extra_args)
-    logger.debug('Parsed model args %r', mod_args)
-    mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
+
+    if not use_checkpoint or args.ignore_saved_args:
+        # Use model arguments specified via CLI
+        mod_parser = mod_cls.build_parser(prefix='m')
+        mod_args, extra_args = mod_parser.parse_known_args(extra_args)
+        logger.debug('Parsed model args %r', mod_args)
+
+    if len(extra_args) > 0:
+        logger.warn('Ignoring extra arguments %r', extra_args)
 
     if args.watch:
         # Watch mode
@@ -89,6 +97,10 @@ if __name__ == '__main__':
                         # Note that checkpoint might be incomplete
                         checkpoint = torch.load(last_checkpoint_path)
                         logger.info('Loading model from %s', last_checkpoint_path)
+                        # Use the saved model arguments
+                        if use_checkpoint and not args.ignore_saved_args:
+                            mod_args = checkpoint['model_args']
+                        mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
                         mod.load_state_dict(checkpoint['model'])
                         # Evaluate the checkpoint
                         rets, lens = evaluate_policy(env, mod, args.n_episodes, args.render)
@@ -121,7 +133,14 @@ if __name__ == '__main__':
                 checkpoint_path = args.checkpoint
             logger.info('Loading model from %s', checkpoint_path)
             checkpoint = torch.load(checkpoint_path)
+            # Use the saved model arguments
+            if use_checkpoint and not args.ignore_saved_args:
+                mod_args = checkpoint['model_args']
+            mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
             mod.load_state_dict(checkpoint['model'])
+        else:
+            # Non-trainable models
+            mod = mod_cls(env.observation_space, env.action_space)
 
         # Fix random seed
         if args.seed is not None:

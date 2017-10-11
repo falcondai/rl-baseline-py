@@ -11,7 +11,7 @@ import torch.nn.functional as f
 
 from rl_baseline.core import StochasticPolicy, StateValue
 from rl_baseline.registry import method_registry, model_registry, optimizer_registry
-from rl_baseline.util import global_norm, log_format, write_tb_event, save_checkpoint
+from rl_baseline.util import global_norm, log_format, write_tb_event
 
 
 # Set up logger
@@ -38,7 +38,7 @@ class A2cModel(StochasticPolicy, StateValue, nn.Module):
 @method_registry.register('a2c')
 class A2cTrainer:
     '''Advantage actor-critic'''
-    def __init__(self, env, model, optimizer, writer=None, log_dir=None):
+    def __init__(self, env, model, optimizer, writer=None, saver=None):
         assert isinstance(model, A2cModel), 'The model argument needs to be an instance of `A2cModel`.'
 
         self.env = env
@@ -47,7 +47,7 @@ class A2cTrainer:
 
         # Optional utilities for logging
         self.writer = writer
-        self.log_dir = log_dir
+        self.saver = saver
 
         # Total tick count
         self.total_ticks = 0
@@ -127,8 +127,8 @@ class A2cTrainer:
             loss = pg_loss + 0.5 * va_loss - 0.01 * ac_ent
 
             # Save a checkpoint
-            if self.log_dir is not None and step % checkpoint_interval == 0:
-                save_checkpoint(t, episode, step, self.optimizer, self.model, self.log_dir)
+            if self.saver is not None and step % checkpoint_interval == 0:
+                self.saver.save_checkpoint(t, episode, step)
 
             # Compute gradient
             loss.backward()

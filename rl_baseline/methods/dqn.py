@@ -12,7 +12,7 @@ from torch.nn.utils import clip_grad_norm
 
 from rl_baseline.core import Policy, StateValue, ActionValue, Parsable
 from rl_baseline.registry import method_registry, model_registry, optimizer_registry
-from rl_baseline.util import global_norm, log_format, write_tb_event, linear_schedule, copy_params, save_checkpoint
+from rl_baseline.util import global_norm, log_format, write_tb_event, linear_schedule, copy_params
 
 
 # Set up logger
@@ -140,7 +140,7 @@ class DqnTrainer(Parsable):
         # Add replay buffer's arguments
         ReplayBuffer.add_args(parser, prefix)
 
-    def __init__(self, env, model, target_model, optimizer, capacity, criterion, max_grad_norm, target_update_interval, exploration_type, initial_exploration, terminal_exploration, exploration_length, minimal_replay_buffer_occupancy, writer=None, log_dir=None):
+    def __init__(self, env, model, target_model, optimizer, capacity, criterion, max_grad_norm, target_update_interval, exploration_type, initial_exploration, terminal_exploration, exploration_length, minimal_replay_buffer_occupancy, writer=None, saver=None):
         assert isinstance(model, DqnModel), 'The model argument needs to be an instance of `DqnModel`.'
         assert criterion in ['l2', 'huber'], '`criterion` has to be one of {`l2`, `huber`}.'
         assert exploration_type in ['softmax', 'epsilon'], 'Only supports `softmax` and `epsilon`-greedy exploration strategies.'
@@ -152,7 +152,7 @@ class DqnTrainer(Parsable):
 
         # Optional utilities for logging
         self.writer = writer
-        self.log_dir = log_dir
+        self.saver = saver
 
         # Total tick count
         self.total_ticks = 0
@@ -264,8 +264,8 @@ class DqnTrainer(Parsable):
                 loss = q_loss
 
                 # Save a checkpoint
-                if self.log_dir is not None and step % checkpoint_interval == 0:
-                    save_checkpoint(t, episode, step, self.optimizer, self.model, self.log_dir)
+                if self.saver is not None and step % checkpoint_interval == 0:
+                    self.saver.save_checkpoint(t, episode, step)
 
                 # Compute gradient
                 loss.backward()
@@ -329,3 +329,9 @@ class DqnMlp(DqnModel):
             net = self.activation_fn(net)
         net = self.fc_layers[-1](net)
         return net
+
+
+# TODO CNN model
+
+
+# TODO the DQN model from the DQN paper
