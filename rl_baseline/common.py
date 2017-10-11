@@ -5,7 +5,7 @@ import logging
 import numpy as np
 
 from rl_baseline.util import log_format, report_perf
-from rl_baseline.core import Policy
+from rl_baseline.core import Policy, Parsable
 from rl_baseline.registry import model_registry
 
 
@@ -14,7 +14,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 @model_registry.register('random')
-class RandomPolicy(Policy):
+class RandomPolicy(Policy, Parsable):
     '''A simple and useful baseline policy.'''
     def __init__(self, ob_space, ac_space):
         self.ac_space = ac_space
@@ -54,8 +54,16 @@ def q_from_rollout(sim, state, action, rollout_policy, depth_bound=None, va=None
     return total_return
 
 @model_registry.register('exhaust')
-class ExhaustivePolicy(Policy):
-    def __init__(self, env, sim, rollout_policy, max_rollouts=1000, search_bound=None):
+class ExhaustivePolicy(Policy, Parsable):
+    '''Bounded-depth exhaustive search.'''
+    @classmethod
+    def add_args(kls, parser, prefix):
+        parser.add_argument(kls.prefix_arg_name('sim', prefix), dest='sim', help='Simulator to use.')
+        parser.add_argument(kls.prefix_arg_name('bound', prefix), dest='search_bound', type=int, default=None, help='Max depth of each rollout. None for no bound.')
+        parser.add_argument(kls.prefix_arg_name('n-rollouts', prefix), dest='max_rollouts', type=int, default=100, help='Number of rollouts for each tick.')
+
+    def __init__(self, env, sim, rollout_policy, max_rollouts, search_bound):
+        assert sim.action_space == env.action_space, 'The action spaces of `env` and `sim` have to be the same.'
         self.env = env
         self.sim = sim
         self.ac_space = env.action_space
@@ -108,5 +116,3 @@ def evaluate_policy(env, model, n_episodes, render):
     report_perf(rets, lens, log_level=logging.DEBUG)
 
     return rets, lens
-
-# TODO train_policy

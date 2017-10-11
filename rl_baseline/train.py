@@ -32,11 +32,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-e', '--environment', default='gym.CartPole-v0', choices=env_registry.all().keys(), help='Environment id.')
-    parser.add_argument('-m', '--model', default='a2c.linear', choices=model_registry.all().keys(), help='Model id.')
+    parser.add_argument('-m', '--model', default='dqn.mlp', choices=model_registry.all().keys(), help='Model id.')
     parser.add_argument('-l', '--log-dir', default='./logs', help='Path to log directory.')
     parser.add_argument('--no-summary', dest='write_summary', action='store_false', help='Do not write summary protobuf for TensorBoard.')
-    parser.add_argument('--episode-report-interval', type=int, default=1, help='Report every N-many episodes.')
-    parser.add_argument('--step-report-interval', type=int, default=1, help='Report every N-many steps.')
+    parser.add_argument('--episode-report-interval', type=int, default=10, help='Report every N-many episodes.')
+    parser.add_argument('--step-report-interval', type=int, default=400, help='Report every N-many steps.')
     parser.add_argument('-lr', '--learning-rate', type=float, default=0.05, help='Initial learning rate.')
     parser.add_argument('--seed', type=int, default=None, help='Random seed.')
     parser.add_argument('-n', '--max-ticks', type=int, default=10**4, help='Maximum number of ticks to train.')
@@ -57,6 +57,7 @@ if __name__ == '__main__':
 
     # Debug information
     logger.debug('PyTorch version %s', torch.__version__)
+    logger.debug('Parsed args %r', args)
 
     # Parse the method-specific arguments
     method_key = args.model.split('.')[0]

@@ -24,14 +24,8 @@ logger.setLevel(logging.DEBUG)
 
 
 class DqnModel(Policy, ActionValue, StateValue, nn.Module, Parsable):
-    @classmethod
-    def add_args(kls, parser, prefix):
-        parser.add_argument(kls.prefix_arg_name('exploration', prefix), dest='exploration_type', default='epsilon', choices=['softmax', 'epsilon'], help='Type of exploration strategy.')
-
-    def __init__(self, exploration_type, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super(DqnModel, self).__init__(*args, **kwargs)
-        assert exploration_type in ['softmax', 'epsilon'], 'Only supports `softmax` and `epsilon`-greedy exploration strategies.'
-        self.exploration_type = exploration_type
 
     def q(self, ob):
         return self.forward(ob)
@@ -41,33 +35,11 @@ class DqnModel(Policy, ActionValue, StateValue, nn.Module, Parsable):
         max_q, ac = q.max(1)
         return max_q
 
-    def sample_ac(self, q, exploration):
-        if self.exploration_type == 'softmax':
-            # Softmax exploration
-            temperature = exploration
-            assert temperature > 0, 'Softmax temperature be greater than 0.'
-            ac = torch.multinomial((q / temperature).exp(), 1)
-            t_ac = ac.data[0, 0]
-        elif self.exploration_type == 'epsilon':
-            # Epsilon-greedy exploration
-            epsilon = exploration
-            assert epsilon <= 1, 'Epsilon must be no greater than 1.'
-            if np.random.rand() < epsilon:
-                return np.random.randint(self.n_actions)
-            # Greedy action
-            max_q, ac = q.max(1)
-            t_ac = ac.data[0]
-        else:
-            # Greedy
-            max_q, ac = q.max(1)
-            t_ac = ac.data[0]
-
-        return t_ac
-
     def act(self, ob):
         v_ob = Variable(torch.FloatTensor([ob.astype('float')]))
         q = self.q(v_ob)
-        return self.sample_ac(q, 0)
+        max_q, max_ac = q.max(1)
+        return max_ac.data[0]
 
 
 class ReplayBuffer(Parsable):
@@ -117,13 +89,61 @@ class DqnTrainer(Parsable):
     '''Q-learning'''
     @classmethod
     def add_args(kls, parser, prefix):
-        parser.add_argument(kls.prefix_arg_name('criterion', prefix), dest='criterion', choices=['l2', 'huber'], default='huber', help='Loss functional.')
+        parser.add_argument(
+            kls.prefix_arg_name('criterion', prefix),
+            dest='criterion',
+            choices=['l2', 'huber'],
+            default='huber',
+            help='Loss functional.')
+        parser.add_argument(
+            kls.prefix_arg_name('max-grad-norm', prefix),
+            dest='max_grad_norm',
+            type=float,
+            default=10,
+            help='Maximum norm of the gradient. -1 for no limit.')
+        parser.add_argument(
+            kls.prefix_arg_name('target-update-interval', prefix),
+            dest='target_update_interval',
+            type=int,
+            default=500,
+            help='How many parameter update steps before each target model update.')
+        parser.add_argument(
+            kls.prefix_arg_name('exp-type', prefix),
+            dest='exploration_type',
+            choices=['softmax', 'epsilon'],
+            default='epsilon',
+            help='Type of exploration strategy. Default to be epsilon.')
+        parser.add_argument(
+            kls.prefix_arg_name('exp-initial', prefix),
+            dest='initial_exploration',
+            type=float,
+            default=1,
+            help='Inital value for the exploration factor.')
+        parser.add_argument(
+            kls.prefix_arg_name('exp-terminal', prefix),
+            dest='terminal_exploration',
+            type=float,
+            default=0.01,
+            help='Terminal value for the exploration factor.')
+        parser.add_argument(
+            kls.prefix_arg_name('exp-length', prefix),
+            dest='exploration_length',
+            type=int,
+            default=1000,
+            help='Length of the linear decay schedule of the exloration factor.')
+        parser.add_argument(
+            kls.prefix_arg_name('min-replay-size', prefix),
+            dest='minimal_replay_buffer_occupancy',
+            type=int,
+            default=100,
+            help='Length of the linear decay schedule of the exloration factor.')
         # Add replay buffer's arguments
         ReplayBuffer.add_args(parser, prefix)
 
-    def __init__(self, env, model, target_model, optimizer, capacity, criterion, writer=None, log_dir=None):
+    def __init__(self, env, model, target_model, optimizer, capacity, criterion, max_grad_norm, target_update_interval, exploration_type, initial_exploration, terminal_exploration, exploration_length, minimal_replay_buffer_occupancy, writer=None, log_dir=None):
         assert isinstance(model, DqnModel), 'The model argument needs to be an instance of `DqnModel`.'
         assert criterion in ['l2', 'huber'], '`criterion` has to be one of {`l2`, `huber`}.'
+        assert exploration_type in ['softmax', 'epsilon'], 'Only supports `softmax` and `epsilon`-greedy exploration strategies.'
 
         self.env = env
         self.model = model
@@ -137,10 +157,37 @@ class DqnTrainer(Parsable):
         # Total tick count
         self.total_ticks = 0
         self.q_crit = nn.SmoothL1Loss() if criterion == 'huber' else nn.MSELoss()
+        self.max_grad_norm = max_grad_norm
+        self.exploration_type = exploration_type
+        self.initial_exploration = initial_exploration
+        self.terminal_exploration = terminal_exploration
+        self.exploration_length = exploration_length
+        self.target_update_interval = target_update_interval
+        self.minimal_replay_buffer_occupancy = minimal_replay_buffer_occupancy
+
         self.replay_buffer = ReplayBuffer(capacity, env.observation_space, env.action_space)
 
+    def sample_ac(self, q, exploration):
+        if self.exploration_type == 'softmax':
+            # Softmax exploration
+            temperature = exploration
+            assert temperature > 0, 'Softmax temperature be greater than 0.'
+            ac = torch.multinomial((q / temperature).exp(), 1)
+            t_ac = ac.data[0, 0]
+        else:
+            # In this case, self.exploration_type == 'epsilon'
+            # Epsilon-greedy exploration
+            epsilon = exploration
+            assert epsilon <= 1, 'Epsilon must be no greater than 1.'
+            if np.random.rand() < epsilon:
+                t_ac = np.random.randint(self.model.n_actions)
+            else:
+                # Greedy action
+                max_q, ac = q.max(1)
+                t_ac = ac.data[0]
+        return t_ac
 
-    def train_for(self, max_ticks, update_interval=1, batch_size=32, minimal_replay_buffer_occupancy=1000, episode_report_interval=1, step_report_interval=1, checkpoint_interval=100, render=False):
+    def train_for(self, max_ticks, update_interval=1, batch_size=32, episode_report_interval=1, step_report_interval=1, checkpoint_interval=100, render=False):
         '''
         Args:
             max_ticks : int
@@ -177,9 +224,8 @@ class DqnTrainer(Parsable):
             for i in xrange(update_interval):
                 v_ob = Variable(torch.FloatTensor([ob.astype('float')]))
                 q = self.model.q(v_ob)
-                # TODO add arguments for schedule
-                epsilon = linear_schedule(1, 0.02, 0, 10000, t)
-                t_ac = self.model.sample_ac(q, epsilon)
+                epsilon = linear_schedule(self.initial_exploration, self.terminal_exploration, 0, self.exploration_length, t)
+                t_ac = self.sample_ac(q, epsilon)
                 prev_ob = ob
                 ob, r, done, extra = self.env.step(t_ac)
                 t += 1
@@ -194,7 +240,7 @@ class DqnTrainer(Parsable):
                     break
 
             # Start training after accumulating some data
-            if minimal_replay_buffer_occupancy < self.replay_buffer.occupancy:
+            if self.minimal_replay_buffer_occupancy < self.replay_buffer.occupancy:
                 # Update parameters
                 self.optimizer.zero_grad()
 
@@ -207,7 +253,7 @@ class DqnTrainer(Parsable):
                 qs = self.model.q(Variable(torch.from_numpy(obs).float()))
                 ac_qs = qs.gather(1, v_acs)
                 # Copy model to target model
-                if step % 500 == 0:
+                if step % self.target_update_interval == 0:
                     copy_params(self.model, self.target_model)
                 nonterminals = Variable(1 - torch.from_numpy(dones.astype('float')).float())
                 vas = nonterminals * self.target_model.va(Variable(torch.from_numpy(next_obs).float()))
@@ -225,7 +271,8 @@ class DqnTrainer(Parsable):
                 loss.backward()
 
                 # Clip the gradient
-                clip_grad_norm(self.model.parameters(), 10)
+                if self.max_grad_norm > 0:
+                    clip_grad_norm(self.model.parameters(), self.max_grad_norm)
 
                 # Report model statistics
                 if step % step_report_interval == 0:
@@ -260,8 +307,8 @@ class DqnMlp(DqnModel):
         parser.add_argument(kls.prefix_arg_name('layers', prefix), dest='hiddens', nargs='*', type=int, default=[64], help='Dimensionality of each hidden layers.')
         parser.add_argument(kls.prefix_arg_name('activation', prefix), dest='activation_fn', default='elu', choices=['elu', 'relu', 'sigmoid', 'tanh'], help='Non-linearity function to use after each linear layer.')
 
-    def __init__(self, ob_space, ac_space, exploration_type, hiddens, activation_fn):
-        super(DqnMlp, self).__init__(exploration_type=exploration_type)
+    def __init__(self, ob_space, ac_space, hiddens, activation_fn):
+        super(DqnMlp, self).__init__()
         assert isinstance(ob_space, spaces.Box) and len(ob_space.shape) == 1, '`ob_space` can only support rank-1 `spaces.Box`.'
         assert isinstance(ac_space, spaces.Discrete), '`ac_space` can only support `spaces.Discrete`.'
 

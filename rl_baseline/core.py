@@ -124,9 +124,9 @@ class Parsable:
 
     @classmethod
     def add_args(kls, parser, prefix):
-        # This is an example
+        # This is an example in `DqnTrainer`
         # parser.add_argument(kls.prefix_arg_name('exploration', prefix), dest='exploration_type', choices=['softmax', 'epsilon'], help='Type of exploration strategy.')
-        raise NotImplementedError
+        pass
 
     @staticmethod
     def prefix_arg_name(arg_name, prefix):

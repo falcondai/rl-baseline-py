@@ -78,7 +78,7 @@ def create_tb_writer(summary_dir):
         from tensorflow import summary
         logger.debug('Imported TensorFlow.')
         # Summary writer and summary path
-        logger.info('Summary are written to %s' % summary_dir)
+        logger.info('TensorBoard summary is being written to %s' % summary_dir)
         writer = summary.FileWriter(summary_dir, flush_secs=10)
     except ImportError:
         logger.warn('TensorFlow cannot be imported. TensorBoard summaries will not be generated. Consider to install the CPU-version TensorFlow.')
