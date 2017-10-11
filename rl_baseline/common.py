@@ -4,13 +4,13 @@ import logging
 
 import numpy as np
 
-from rl_baseline.util import log_format
+from rl_baseline.util import log_format, report_perf
 from rl_baseline.core import Policy
 from rl_baseline.registry import model_registry
 
 
 logging.basicConfig(format=log_format)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 @model_registry.register('random')
@@ -102,12 +102,10 @@ def evaluate_policy(env, model, n_episodes, render):
                 env.render()
             ret += r
             length += 1
-        logger.info('Episode %i return %g length %i', episode, ret, length)
+        logger.debug('Episode %i return %g length %i', episode, ret, length)
         lens.append(length)
         rets.append(ret)
-    logger.info('Total %i episodes', n_episodes)
-    logger.info('Episode return mean/max/min/median %g/%g/%g/%g', np.mean(rets), np.max(rets), np.min(rets), np.median(rets))
-    logger.info('Episode length mean/max/min/median %g/%g/%g/%g', np.mean(lens), np.max(lens), np.min(lens), np.median(lens))
+    report_perf(rets, lens, log_level=logging.DEBUG)
 
     return rets, lens
 

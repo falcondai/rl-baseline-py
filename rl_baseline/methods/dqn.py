@@ -1,6 +1,6 @@
 from six.moves import xrange
 
-import logging, itertools
+import logging, itertools, argparse
 
 import numpy as np
 from gym import spaces, undo_logger_setup
@@ -10,7 +10,7 @@ from torch.autograd import Variable
 import torch.nn.functional as f
 from torch.nn.utils import clip_grad_norm
 
-from rl_baseline.core import Policy, StateValue, ActionValue
+from rl_baseline.core import Policy, StateValue, ActionValue, Parsable
 from rl_baseline.registry import method_registry, model_registry, optimizer_registry
 from rl_baseline.util import global_norm, log_format, write_tb_event, linear_schedule, copy_params, save_checkpoint
 
@@ -18,12 +18,16 @@ from rl_baseline.util import global_norm, log_format, write_tb_event, linear_sch
 # Set up logger
 undo_logger_setup()
 logging.basicConfig(format=log_format)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 # Set the logging level
 logger.setLevel(logging.DEBUG)
 
 
-class DqnModel(Policy, ActionValue, StateValue, nn.Module):
+class DqnModel(Policy, ActionValue, StateValue, nn.Module, Parsable):
+    @classmethod
+    def add_args(kls, parser, prefix):
+        parser.add_argument(kls.prefix_arg_name('exploration', prefix), dest='exploration_type', default='epsilon', choices=['softmax', 'epsilon'], help='Type of exploration strategy.')
+
     def __init__(self, exploration_type, *args, **kwargs):
         super(DqnModel, self).__init__(*args, **kwargs)
         assert exploration_type in ['softmax', 'epsilon'], 'Only supports `softmax` and `epsilon`-greedy exploration strategies.'
@@ -66,8 +70,12 @@ class DqnModel(Policy, ActionValue, StateValue, nn.Module):
         return self.sample_ac(q, 0)
 
 
-class ReplayBuffer:
+class ReplayBuffer(Parsable):
     '''A circular buffer for storing (s, a, r, s') tuples.'''
+    @classmethod
+    def add_args(kls, parser, prefix):
+        parser.add_argument(kls.prefix_arg_name('capacity', prefix), dest='capacity', type=int, default=5000, help='Size of the replay buffer.')
+
     def __init__(self, capacity, ob_space, ac_space):
         # TODO handle more spaces
         # TODO test
@@ -105,10 +113,17 @@ class ReplayBuffer:
 
 
 @method_registry.register('dqn')
-class DqnTrainer:
+class DqnTrainer(Parsable):
     '''Q-learning'''
-    def __init__(self, env, model, target_model, optimizer, writer=None, log_dir=None):
+    @classmethod
+    def add_args(kls, parser, prefix):
+        parser.add_argument(kls.prefix_arg_name('criterion', prefix), dest='criterion', choices=['l2', 'huber'], default='huber', help='Loss functional.')
+        # Add replay buffer's arguments
+        ReplayBuffer.add_args(parser, prefix)
+
+    def __init__(self, env, model, target_model, optimizer, capacity, criterion, writer=None, log_dir=None):
         assert isinstance(model, DqnModel), 'The model argument needs to be an instance of `DqnModel`.'
+        assert criterion in ['l2', 'huber'], '`criterion` has to be one of {`l2`, `huber`}.'
 
         self.env = env
         self.model = model
@@ -121,9 +136,8 @@ class DqnTrainer:
 
         # Total tick count
         self.total_ticks = 0
-        # self.q_crit = nn.MSELoss()
-        self.q_crit = nn.SmoothL1Loss()
-        self.replay_buffer = ReplayBuffer(50000, env.observation_space, env.action_space)
+        self.q_crit = nn.SmoothL1Loss() if criterion == 'huber' else nn.MSELoss()
+        self.replay_buffer = ReplayBuffer(capacity, env.observation_space, env.action_space)
 
 
     def train_for(self, max_ticks, update_interval=1, batch_size=32, minimal_replay_buffer_occupancy=1000, episode_report_interval=1, step_report_interval=1, checkpoint_interval=100, render=False):
@@ -180,7 +194,7 @@ class DqnTrainer:
                     break
 
             # Start training after accumulating some data
-            if self.replay_buffer.occupancy > minimal_replay_buffer_occupancy:
+            if minimal_replay_buffer_occupancy < self.replay_buffer.occupancy:
                 # Update parameters
                 self.optimizer.zero_grad()
 
@@ -240,8 +254,14 @@ class DqnTrainer:
 
 @model_registry.register('dqn.mlp')
 class DqnMlp(DqnModel):
-    def __init__(self, ob_space, ac_space, exploration_type='epsilon', hiddens=[64], non_linearity=f.elu):
-        super(DqnMlp, self).__init__(exploration_type)
+    @classmethod
+    def add_args(kls, parser, prefix):
+        super().add_args(parser, prefix)
+        parser.add_argument(kls.prefix_arg_name('layers', prefix), dest='hiddens', nargs='*', type=int, default=[64], help='Dimensionality of each hidden layers.')
+        parser.add_argument(kls.prefix_arg_name('activation', prefix), dest='activation_fn', default='elu', choices=['elu', 'relu', 'sigmoid', 'tanh'], help='Non-linearity function to use after each linear layer.')
+
+    def __init__(self, ob_space, ac_space, exploration_type, hiddens, activation_fn):
+        super(DqnMlp, self).__init__(exploration_type=exploration_type)
         assert isinstance(ob_space, spaces.Box) and len(ob_space.shape) == 1, '`ob_space` can only support rank-1 `spaces.Box`.'
         assert isinstance(ac_space, spaces.Discrete), '`ac_space` can only support `spaces.Discrete`.'
 
@@ -253,12 +273,12 @@ class DqnMlp(DqnModel):
             lin = nn.Linear(a, b)
             self.add_module('fc%i' % i, lin)
             self.fc_layers.append(lin)
-        self.non_linearity = non_linearity
+        self.activation_fn = getattr(f, activation_fn)
 
     def forward(self, ob):
         net = ob
         for fc in self.fc_layers[:-1]:
             net = fc(net)
-            net = self.non_linearity(net)
+            net = self.activation_fn(net)
         net = self.fc_layers[-1](net)
         return net

@@ -1,3 +1,5 @@
+import argparse
+
 from gym import Env, Wrapper
 from gym.envs.registration import EnvSpec
 
@@ -109,3 +111,25 @@ class EnvSim(Simulator):
 
     def _seed(self, seed=None):
         return self.env._seed(seed)
+
+
+class Parsable:
+    '''Inherits and implements `add_args` method in subclasses to add all the arguments to a CLI parser. The argument defaults should be defined in the `add_args` function instead of `__init__`.'''
+    @classmethod
+    def build_parser(kls, prefix):
+        '''Creates a parser with its arguments'''
+        parser = argparse.ArgumentParser()
+        kls.add_args(parser, prefix)
+        return parser
+
+    @classmethod
+    def add_args(kls, parser, prefix):
+        # This is an example
+        # parser.add_argument(kls.prefix_arg_name('exploration', prefix), dest='exploration_type', choices=['softmax', 'epsilon'], help='Type of exploration strategy.')
+        raise NotImplementedError
+
+    @staticmethod
+    def prefix_arg_name(arg_name, prefix):
+        if prefix != '':
+            return '--%s-%s' % (prefix, arg_name)
+        return '--%s' % arg_name

@@ -1,11 +1,12 @@
 import logging, os, glob
 
+import numpy as np
 import torch
 
 # Set up logging format
 log_format = '[%(asctime)s %(filename)s:%(lineno)d] %(levelname)s: %(message)s'
 logging.basicConfig(format=log_format)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 def global_norm(parameters):
@@ -83,3 +84,8 @@ def create_tb_writer(summary_dir):
         logger.warn('TensorFlow cannot be imported. TensorBoard summaries will not be generated. Consider to install the CPU-version TensorFlow.')
         writer = None
     return writer
+
+def report_perf(returns, lengths, log_level=logging.INFO):
+    logger.log(log_level, 'Total %i episodes', len(returns))
+    logger.log(log_level, 'Episode return mean/max/min/median %g/%g/%g/%g', np.mean(returns), np.max(returns), np.min(returns), np.median(returns))
+    logger.log(log_level, 'Episode length mean/max/min/median %g/%g/%g/%g', np.mean(lengths), np.max(lengths), np.min(lengths), np.median(lengths))

@@ -8,12 +8,12 @@ import torch
 from torch import nn
 
 from rl_baseline.registration import env_registry, model_registry
-from rl_baseline.util import log_format, fix_random_seeds, write_tb_event, get_latest_checkpoint, create_tb_writer
+from rl_baseline.util import log_format, fix_random_seeds, write_tb_event, get_latest_checkpoint, create_tb_writer, report_perf
 from rl_baseline.common import evaluate_policy
 
 
 logging.basicConfig(format=log_format)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 if __name__ == '__main__':
@@ -27,13 +27,20 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--model', default='dqn.mlp', help='Model name.')
     parser.add_argument('--render', action='store_true', help='Show the environment.')
     parser.add_argument('-s', '--seed', type=int, help='Random seed.')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Show more logs.')
 
     # Watch mode
     parser.add_argument('-w', '--watch', action='store_true', help='Watch a log directory to evaluate latest checkpoints.')
     parser.add_argument('--no-best', dest='save_best_model', action='store_false', help='Do not save the best model.')
     parser.add_argument('--no-summary', dest='write_summary', action='store_false', help='Do not write summary.')
 
-    args = parser.parse_args()
+    args, extra_args = parser.parse_known_args()
+
+    # Verbosity
+    if args.verbose:
+        logger.setLevel(logging.DEBUG)
+
+    logger.debug('Parsed args %r', args)
 
     # Check for conflicting arguments
     # Evaluating a non-trainable policy
@@ -46,7 +53,11 @@ if __name__ == '__main__':
 
     # Init
     env = env_registry[args.environment].make()
-    mod = model_registry[args.model](env.observation_space, env.action_space)
+    mod_cls = model_registry[args.model]
+    mod_parser = mod_cls.build_parser(prefix='m')
+    mod_args, extra_args = mod_parser.parse_known_args(extra_args)
+    logger.debug('Parsed model args %r', mod_args)
+    mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
 
     if args.watch:
         # Watch mode
@@ -79,7 +90,9 @@ if __name__ == '__main__':
                         checkpoint = torch.load(last_checkpoint_path)
                         logger.info('Loading model from %s', last_checkpoint_path)
                         mod.load_state_dict(checkpoint['model'])
+                        # Evaluate the checkpoint
                         rets, lens = evaluate_policy(env, mod, args.n_episodes, args.render)
+                        report_perf(rets, lens)
                         avg_ret = np.mean(rets)
                         # Keep the best model
                         if args.save_best_model:
@@ -98,7 +111,7 @@ if __name__ == '__main__':
                         logger.warn(e)
     else:
         # Single-run evaluation
-        if isinstance(model_registry[args.model], nn.Module):
+        if issubclass(model_registry[args.model], nn.Module):
             # Load checkpoint
             if args.log_dir is not None:
                 # Load the latest checkpoint from the log directory
@@ -115,4 +128,5 @@ if __name__ == '__main__':
             fix_random_seeds(args.seed, env, torch, np)
 
         # Evaluate
-        evaluate_policy(env, mod, args.n_episodes, args.render)
+        rets, lens = evaluate_policy(env, mod, args.n_episodes, args.render)
+        report_perf(rets, lens)

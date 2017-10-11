@@ -17,7 +17,7 @@ from rl_baseline.util import global_norm, log_format, write_tb_event, save_check
 # Set up logger
 undo_logger_setup()
 logging.basicConfig(format=log_format)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 # Set the logging level
 logger.setLevel(logging.DEBUG)
 

@@ -21,12 +21,10 @@ from rl_baseline.util import log_format, global_norm, copy_params, save_checkpoi
 
 
 logging.basicConfig(format=log_format)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 # Set the logging level
-logger.setLevel(logging.DEBUG)
-# Debug information
-logger.debug('PyTorch version %s', torch.__version__)
+logger.setLevel(logging.INFO)
 
 if __name__ == '__main__':
     import time, argparse, os
@@ -45,12 +43,27 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--batch-size', type=int, default=20, help='Batch size.')
     parser.add_argument('-o', '--optimizer', default='SGD', choices=optimizer_registry.all().keys(), help='Optimizer to use.')
     parser.add_argument('--render', action='store_true', help='Show the environment.')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Show more logs.')
     # TODO add LR scheduler
     parser.add_argument('--lr-scheduler', default='none', help='Scheduler for learning rates.')
     # TODO add GPU support
     parser.add_argument('--gpu', dest='gpu_id', default=None, help='GPU id to use.')
 
-    args = parser.parse_args()
+    args, extra_args = parser.parse_known_args()
+
+    # Set the logging level
+    if args.verbose:
+        logger.setLevel(logging.DEBUG)
+
+    # Debug information
+    logger.debug('PyTorch version %s', torch.__version__)
+
+    # Parse the method-specific arguments
+    method_key = args.model.split('.')[0]
+    met_cls = method_registry[method_key]
+    met_parser = met_cls.build_parser(prefix='m')
+    met_args, extra_args = met_parser.parse_known_args(extra_args)
+    logger.debug('Parsed Method args %r', met_args)
 
     # Create the log directory
     if not os.path.exists(args.log_dir):
@@ -75,17 +88,21 @@ if __name__ == '__main__':
         fix_random_seeds(args.seed, env, torch, np)
 
     # Set up the method, model and optimizer
-    method_key = args.model.split('.')[0]
-    met_cls = method_registry[method_key]
     mod_cls = model_registry[args.model]
     opt_cls = optimizer_registry[args.optimizer]
+
+    # Parse model-specific arguments
+    mod_parser = mod_cls.build_parser(prefix='m')
+    mod_args, extra_args = mod_parser.parse_known_args(extra_args)
+    logger.debug('Parsed model args %r', mod_args)
+
     logger.info('Using method %s' % met_cls)
     logger.info('Using model %s' % mod_cls)
     logger.info('Using optimizer %s' % opt_cls)
 
     # Initialize
-    mod = mod_cls(env.observation_space, env.action_space)
-    target_mod = mod_cls(env.observation_space, env.action_space)
+    mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
+    target_mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
     copy_params(mod, target_mod)
     # Show model statistics
     param_count = 0
@@ -94,7 +111,7 @@ if __name__ == '__main__':
         logger.info('Parameter %s size %r', name, param.size())
     logger.info('Parameters has %i elements.', param_count)
     opt = opt_cls(params=mod.parameters(), lr=args.learning_rate)
-    tra = met_cls(env, mod, target_mod, opt, writer, args.log_dir)
+    tra = met_cls(env, mod, target_mod, opt, writer=writer, log_dir=args.log_dir, **vars(met_args))
 
     # Training
     tick, episode, step = tra.train_for(
