@@ -68,13 +68,21 @@ def fix_random_seeds(seed, env, torch, numpy):
     torch.manual_seed(seed)
     numpy.random.seed(seed)
 
+def extract_checkpoint_t(checkpoint_path):
+    # Assume checkpoints are saved to paths like /tmp/dqn/checkpoint-11501.pt
+    # XXX the modified time via getmtime sometimes causes eval to skip the last checkpoint
+    return int(checkpoint_path.split('-')[-1][:-3])
+
 def get_latest_checkpoint(log_dir):
     pt_paths = glob.glob(os.path.join(log_dir, '*.pt'))
     if len(pt_paths) == 0:
         logger.warn('There is no *.pt checkpoint files at %s' % log_dir)
         return None
-    latest_checkpoint_path = max(pt_paths, key=os.path.getmtime)
-    return latest_checkpoint_path
+    if 1 < len(pt_paths):
+        latest_checkpoint_path = max(pt_paths, key=extract_checkpoint_t)
+        return latest_checkpoint_path
+    # There is only one checkpoint (best model folder)
+    return pt_paths[0]
 
 def create_tb_writer(summary_dir):
     try:

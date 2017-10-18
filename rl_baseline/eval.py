@@ -8,7 +8,7 @@ import torch
 from torch import nn
 
 from rl_baseline.registration import env_registry, model_registry
-from rl_baseline.util import log_format, fix_random_seeds, write_tb_event, get_latest_checkpoint, create_tb_writer, report_perf
+from rl_baseline.util import log_format, fix_random_seeds, write_tb_event, get_latest_checkpoint, create_tb_writer, report_perf, extract_checkpoint_t
 from rl_baseline.common import evaluate_policy
 
 
@@ -86,42 +86,46 @@ if __name__ == '__main__':
                 logger.debug('Created the eval summary directory %s', eval_summary_dir)
             writer = create_tb_writer(eval_summary_dir)
         # Start the monitoring loop
-        last_mtime = 0
+        last_t = 0
         while True:
-            last_checkpoint_path = get_latest_checkpoint(args.log_dir)
+            # Find the first unevaluated checkpoint
+            paths = glob.glob(os.path.join(args.log_dir, '*.pt'))
+            paths = sorted(paths, key=extract_checkpoint_t)
+            unchecked_checkpoint_paths = [path for path in paths if last_t < extract_checkpoint_t(path)]
             # Wait for the first checkpoint file to show up
             # This is needed if we run eval before training starts
-            if last_checkpoint_path is not None:
-                mtime = os.path.getmtime(last_checkpoint_path)
-                if last_mtime < mtime:
-                    try:
-                        # Note that checkpoint might be incomplete
-                        checkpoint = torch.load(last_checkpoint_path)
-                        logger.info('Loading model from %s', last_checkpoint_path)
-                        # Use the saved model arguments
-                        if use_checkpoint and not args.ignore_saved_args:
-                            mod_args_dict = checkpoint['model_args'] or vars(mod_args)
-                        mod = mod_cls(env.observation_space, env.action_space, **mod_args_dict)
-                        mod.load_state_dict(checkpoint['model'])
-                        # Evaluate the checkpoint
-                        rets, lens = evaluate_policy(env, mod, args.n_episodes, args.render)
-                        report_perf(rets, lens)
-                        avg_ret = np.mean(rets)
-                        # Keep the best model
-                        if args.save_best_model:
-                            if best_return is None or best_return < avg_ret:
-                                logger.info('New best model with return %g', avg_ret)
-                                # Replace the best model
-                                shutil.copyfile(last_checkpoint_path, best_model_path)
-                                best_return = avg_ret
-                        # Write eval summaries for TensorBoard
-                        if args.write_summary:
-                            write_tb_event(writer, checkpoint['tick'], {
-                                'metrics/episode_return': avg_ret,
-                            })
-                        last_mtime = mtime
-                    except Exception as e:
-                        logger.warn(e)
+            if len(unchecked_checkpoint_paths) > 0:
+                # The first unevaluated checkpoint
+                last_checkpoint_path = unchecked_checkpoint_paths[0]
+                checkpoint_t = extract_checkpoint_t(last_checkpoint_path)
+                try:
+                    # Note that checkpoint might be incomplete
+                    checkpoint = torch.load(last_checkpoint_path)
+                    logger.info('Loading model from %s', last_checkpoint_path)
+                    # Use the saved model arguments
+                    if use_checkpoint and not args.ignore_saved_args:
+                        mod_args_dict = checkpoint['model_args'] or vars(mod_args)
+                    mod = mod_cls(env.observation_space, env.action_space, **mod_args_dict)
+                    mod.load_state_dict(checkpoint['model'])
+                    # Evaluate the checkpoint
+                    rets, lens = evaluate_policy(env, mod, args.n_episodes, args.render)
+                    report_perf(rets, lens)
+                    avg_ret = np.mean(rets)
+                    # Keep the best model
+                    if args.save_best_model:
+                        if best_return is None or best_return < avg_ret:
+                            logger.info('New best model with return %g', avg_ret)
+                            # Add link to the latest best model
+                            os.symlink(last_checkpoint_path, os.path.join(best_model_dir, os.path.basename(last_checkpoint_path)))
+                            best_return = avg_ret
+                    # Write eval summaries for TensorBoard
+                    if args.write_summary:
+                        write_tb_event(writer, checkpoint['tick'], {
+                            'metrics/episode_return': avg_ret,
+                        })
+                    last_t = checkpoint_t
+                except Exception as e:
+                    logger.warn(e)
     else:
         # Single-run evaluation
         if issubclass(model_registry[args.model], nn.Module):
