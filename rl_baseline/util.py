@@ -37,6 +37,11 @@ def copy_params(from_model, to_model):
 class Saver:
     '''Keeps track of some important objects and makes checkpointing more convenient.'''
     def __init__(self, log_dir, model, optimizer, model_args, method_args):
+        '''
+        Args:
+            model_args : dict
+            method_args : dict
+        '''
         self.log_dir = log_dir
         self.model = model
         self.optimizer = optimizer

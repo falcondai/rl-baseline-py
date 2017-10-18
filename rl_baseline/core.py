@@ -98,6 +98,8 @@ class EnvSim(Simulator):
     '''A simulator that consists of an enviroment.'''
     def __init__(self, env, *args, **kwargs):
         self.env = env
+        self.observation_space = env.observation_space
+        self.action_space = env.action_space
         super(EnvSim, self).__init__(*args, **kwargs)
 
     def _step(self, ac):

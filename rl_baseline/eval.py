@@ -57,12 +57,13 @@ if __name__ == '__main__':
     # Init
     env = env_registry[args.environment].make()
     mod_cls = model_registry[args.model]
+    # Use model arguments specified via CLI
+    mod_parser = mod_cls.build_parser(prefix='m')
+    mod_args, extra_args = mod_parser.parse_known_args(extra_args)
+    logger.debug('Parsed model args %r', mod_args)
 
     if not use_checkpoint or args.ignore_saved_args:
-        # Use model arguments specified via CLI
-        mod_parser = mod_cls.build_parser(prefix='m')
-        mod_args, extra_args = mod_parser.parse_known_args(extra_args)
-        logger.debug('Parsed model args %r', mod_args)
+        mod_args_dict = vars(mod_args)
 
     if len(extra_args) > 0:
         logger.warn('Ignoring extra arguments %r', extra_args)
@@ -99,8 +100,8 @@ if __name__ == '__main__':
                         logger.info('Loading model from %s', last_checkpoint_path)
                         # Use the saved model arguments
                         if use_checkpoint and not args.ignore_saved_args:
-                            mod_args = checkpoint['model_args']
-                        mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
+                            mod_args_dict = checkpoint['model_args'] or vars(mod_args)
+                        mod = mod_cls(env.observation_space, env.action_space, **mod_args_dict)
                         mod.load_state_dict(checkpoint['model'])
                         # Evaluate the checkpoint
                         rets, lens = evaluate_policy(env, mod, args.n_episodes, args.render)
@@ -135,8 +136,10 @@ if __name__ == '__main__':
             checkpoint = torch.load(checkpoint_path)
             # Use the saved model arguments
             if use_checkpoint and not args.ignore_saved_args:
-                mod_args = checkpoint['model_args']
-            mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
+                mod_args_dict = checkpoint['model_args'] or vars(mod_args)
+            mod = mod_cls(env.observation_space, env.action_space, **mod_args_dict)
+            checkpoint['model']['fc1.weight'] = checkpoint['model']['fc1.weight'][:2]
+            checkpoint['model']['fc1.bias'] = checkpoint['model']['fc1.bias'][:2]
             mod.load_state_dict(checkpoint['model'])
         else:
             # Non-trainable models

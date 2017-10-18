@@ -101,7 +101,7 @@ if __name__ == '__main__':
 
     if len(extra_args) > 0:
         logger.warn('Ignoring extra arguments %r', extra_args)
-        
+
     logger.info('Using method %s' % met_cls)
     logger.info('Using model %s' % mod_cls)
     logger.info('Using optimizer %s' % opt_cls)
@@ -117,7 +117,7 @@ if __name__ == '__main__':
         logger.info('Parameter %s size %r', name, param.size())
     logger.info('Parameters has %i elements.', param_count)
     opt = opt_cls(params=mod.parameters(), lr=args.learning_rate)
-    saver = Saver(args.log_dir, mod, opt, mod_args, met_args)
+    saver = Saver(args.log_dir, mod, opt, vars(mod_args), vars(met_args))
     tra = met_cls(env, mod, target_mod, opt, writer=writer, saver=saver, **vars(met_args))
 
     # Training
