@@ -116,7 +116,10 @@ if __name__ == '__main__':
                             logger.info('New best model with return %g', avg_ret)
                             # Add link to the latest best model
                             best_model_path = os.path.join(best_model_dir, os.path.basename(last_checkpoint_path))
-                            os.symlink(os.path.relpath(last_checkpoint_path, best_model_dir), best_model_path)
+                            try:
+                                os.symlink(os.path.relpath(last_checkpoint_path, best_model_dir), best_model_path)
+                            except IOError as e:
+                                logger.warn(e)
                             best_return = avg_ret
                     # Write eval summaries for TensorBoard
                     if args.write_summary:
@@ -142,8 +145,6 @@ if __name__ == '__main__':
             if use_checkpoint and not args.ignore_saved_args:
                 mod_args_dict = checkpoint['model_args'] or vars(mod_args)
             mod = mod_cls(env.observation_space, env.action_space, **mod_args_dict)
-            checkpoint['model']['fc1.weight'] = checkpoint['model']['fc1.weight'][:2]
-            checkpoint['model']['fc1.bias'] = checkpoint['model']['fc1.bias'][:2]
             mod.load_state_dict(checkpoint['model'])
         else:
             # Non-trainable models
