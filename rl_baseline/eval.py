@@ -73,7 +73,6 @@ if __name__ == '__main__':
         # Setup for tracking the best model evaluated so far
         if args.save_best_model:
             best_model_dir = os.path.join(args.log_dir, 'best')
-            best_model_path = os.path.join(best_model_dir, 'checkpoint.pt')
             if not os.path.exists(best_model_dir):
                 os.makedirs(best_model_dir)
                 logger.debug('Created the best model directory %s', best_model_dir)
@@ -116,7 +115,8 @@ if __name__ == '__main__':
                         if best_return is None or best_return < avg_ret:
                             logger.info('New best model with return %g', avg_ret)
                             # Add link to the latest best model
-                            os.symlink(last_checkpoint_path, os.path.join(best_model_dir, os.path.basename(last_checkpoint_path)))
+                            best_model_path = os.path.join(best_model_dir, os.path.basename(last_checkpoint_path))
+                            os.symlink(os.path.relpath(last_checkpoint_path, best_model_dir), best_model_path)
                             best_return = avg_ret
                     # Write eval summaries for TensorBoard
                     if args.write_summary:
