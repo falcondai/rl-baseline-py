@@ -137,10 +137,15 @@ class DqnTrainer(Parsable):
             type=int,
             default=100,
             help='Length of the linear decay schedule of the exloration factor.')
+        parser.add_argument(
+            kls.prefix_arg_name('double-dqn', prefix),
+            dest='double_dqn',
+            action='store_true',
+            help='Use double DQN. See Hasselt et al (2015).')
         # Add replay buffer's arguments
         ReplayBuffer.add_args(parser, prefix)
 
-    def __init__(self, env, model, target_model, optimizer, capacity, criterion, max_grad_norm, target_update_interval, exploration_type, initial_exploration, terminal_exploration, exploration_length, minimal_replay_buffer_occupancy, writer=None, saver=None):
+    def __init__(self, env, model, target_model, optimizer, capacity, criterion, max_grad_norm, target_update_interval, exploration_type, initial_exploration, terminal_exploration, exploration_length, minimal_replay_buffer_occupancy, double_dqn, writer=None, saver=None):
         assert isinstance(model, DqnModel), 'The model argument needs to be an instance of `DqnModel`.'
         assert criterion in ['l2', 'huber'], '`criterion` has to be one of {`l2`, `huber`}.'
         assert exploration_type in ['softmax', 'epsilon'], 'Only supports `softmax` and `epsilon`-greedy exploration strategies.'
@@ -164,6 +169,7 @@ class DqnTrainer(Parsable):
         self.exploration_length = exploration_length
         self.target_update_interval = target_update_interval
         self.minimal_replay_buffer_occupancy = minimal_replay_buffer_occupancy
+        self.double_dqn = double_dqn
 
         self.replay_buffer = ReplayBuffer(capacity, env.observation_space, env.action_space)
 
@@ -248,15 +254,26 @@ class DqnTrainer(Parsable):
                 obs, acs, rs, next_obs, dones = self.replay_buffer.sample_sars(batch_size)
 
                 # Action-value estimation
-                # TD(0)-error = Q(s, a) - (r + V(s')) where V(s') = max_a' Q(s', a')
+                # TD(0)-error = Q(s, a) - (r + gamma * V(s')) where V(s') = max_a' Q(s', a')
                 v_acs = Variable(torch.from_numpy(acs)).view(-1, 1)
                 qs = self.model.q(Variable(torch.from_numpy(obs).float()))
-                ac_qs = qs.gather(1, v_acs)
+                ac_qs = qs.gather(1, v_acs).squeeze(-1)
                 # Copy model to target model
                 if step % self.target_update_interval == 0:
                     copy_params(self.model, self.target_model)
                 nonterminals = Variable(1 - torch.from_numpy(dones.astype('float')).float())
-                vas = nonterminals * self.target_model.va(Variable(torch.from_numpy(next_obs).float()))
+                v_next_obs = Variable(torch.from_numpy(next_obs).float())
+                if self.double_dqn:
+                    # Double DQN from Hasselt et al. Deep Reinforcement Learning with Double Q-learning
+                    _, max_acs = self.model.q(v_next_obs).max(1)
+                    vas = self.target_model.q(v_next_obs).gather(1, max_acs.view(-1, 1)).squeeze(-1)
+                else:
+                    # Standard DQN with a target Q-network
+                    vas = self.target_model.va(v_next_obs).squeeze(-1)
+                # write_tb_event(self.writer, t, {
+                #     'temp/max_q': vas.max().data[0],
+                # })
+                vas = nonterminals * vas
                 target_q = Variable(torch.FloatTensor(rs)) + vas
                 q_loss = self.q_crit(ac_qs, target_q.detach())
 
