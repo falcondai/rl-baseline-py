@@ -32,6 +32,7 @@ if __name__ == '__main__':
 
     # Watch mode
     parser.add_argument('-w', '--watch', action='store_true', help='Watch a log directory to evaluate latest checkpoints.')
+    parser.add_argument('--post-hoc', action='store_true', help='Post-hoc watch mode. Ends the monitoring loop if there are no more unevaluated checkpoints.')
     parser.add_argument('--no-best', dest='save_best_model', action='store_false', help='Do not save the best model.')
     parser.add_argument('--no-summary', dest='write_summary', action='store_false', help='Do not write summary.')
 
@@ -115,7 +116,8 @@ if __name__ == '__main__':
                         if best_return is None or best_return < avg_ret:
                             logger.info('New best model with return %g', avg_ret)
                             # Add link to the latest best model
-                            best_model_path = os.path.join(best_model_dir, os.path.basename(last_checkpoint_path))
+                            best_model_name = 'checkpoint-r%.2f-%i.pt' % (avg_ret, checkpoint_t)
+                            best_model_path = os.path.join(best_model_dir, best_model_name)
                             try:
                                 os.symlink(os.path.relpath(last_checkpoint_path, best_model_dir), best_model_path)
                             except IOError as e:
@@ -129,6 +131,11 @@ if __name__ == '__main__':
                     last_t = checkpoint_t
                 except Exception as e:
                     logger.warn(e)
+            elif args.post_hoc:
+                # Post-hoc watch mode
+                # Ends when it has evaluated all checkpoints
+                logger.info('All checkpoints are evaluated.')
+                break
     else:
         # Single-run evaluation
         if issubclass(model_registry[args.model], nn.Module):
