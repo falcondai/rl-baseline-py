@@ -35,7 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--model', default='dqn.mlp', choices=model_registry.all().keys(), help='Model id.')
     parser.add_argument('-l', '--log-dir', default='./logs', help='Path to log directory.')
     parser.add_argument('--no-summary', dest='write_summary', action='store_false', help='Do not write summary protobuf for TensorBoard.')
-    parser.add_argument('--episode-report-interval', type=int, default=10, help='Report every N-many episodes.')
+    parser.add_argument('--episode-report-interval', type=int, default=1, help='Report every N-many episodes.')
     parser.add_argument('--step-report-interval', type=int, default=400, help='Report every N-many steps.')
     parser.add_argument('-lr', '--learning-rate', type=float, default=0.05, help='Initial learning rate.')
     parser.add_argument('--seed', type=int, default=None, help='Random seed.')
@@ -66,7 +66,7 @@ if __name__ == '__main__':
     met_cls = method_registry[method_key]
     met_parser = met_cls.build_parser(prefix='m')
     met_args, extra_args = met_parser.parse_known_args(extra_args)
-    logger.debug('Parsed Method args %r', met_args)
+    logger.debug('Parsed method args %r', met_args)
 
     # Create the log directory
     if not os.path.exists(args.log_dir):
@@ -111,6 +111,7 @@ if __name__ == '__main__':
     target_mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
     copy_params(mod, target_mod)
     # Show model statistics
+    logger.info('Model architecture %r', mod)
     param_count = 0
     for name, param in mod.named_parameters():
         param_count += param.nelement()
@@ -126,6 +127,7 @@ if __name__ == '__main__':
         batch_size=args.batch_size,
         episode_report_interval=args.episode_report_interval,
         step_report_interval=args.step_report_interval,
+        render=args.render,
     )
 
     # Wrap up

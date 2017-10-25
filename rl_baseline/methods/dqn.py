@@ -24,19 +24,42 @@ logger.setLevel(logging.DEBUG)
 
 
 class DqnModel(Policy, ActionValue, StateValue, nn.Module, Parsable):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, ob_space, *args, **kwargs):
         super(DqnModel, self).__init__(*args, **kwargs)
+        self.ob_space = ob_space
 
-    def q(self, ob):
-        return self.forward(ob)
+    def preprocess_obs(self, obs):
+        '''
+        Returns suitable `Variable` for use with the model's `forward` calls.
 
-    def va(self, ob):
-        q = self.q(ob)
+        Args:
+            obs : [`self.ob_space`]
+                A list of observations.
+        '''
+        if isinstance(self.ob_space, spaces.Box):
+            v_obs = Variable(torch.FloatTensor(np.asarray(obs, dtype='float')))
+        elif isinstance(self.ob_space, spaces.Discrete):
+            v_obs = Variable(torch.from_numpy(np.asarray(obs, dtype='long')))
+        # else:
+        #     raise TypeError('`ob` cannot be preprocessed.')
+        return v_obs
+
+    def q(self, v_obs):
+        return self.forward(v_obs)
+
+    def va(self, v_obs):
+        q = self.q(v_obs)
         max_q, ac = q.max(1)
         return max_q
 
     def act(self, ob):
-        v_ob = Variable(torch.FloatTensor([ob.astype('float')]))
+        '''
+        Args:
+            ob : `self.ob_space`
+                A single observation from the observation space.
+        '''
+        # v_ob = Variable(torch.FloatTensor([ob.astype('float')]))
+        v_ob = self.preprocess_obs([ob])
         q = self.q(v_ob)
         max_q, max_ac = q.max(1)
         return max_ac.data[0]
@@ -46,7 +69,12 @@ class ReplayBuffer(Parsable):
     '''A circular buffer for storing (s, a, r, s') tuples.'''
     @classmethod
     def add_args(kls, parser, prefix):
-        parser.add_argument(kls.prefix_arg_name('capacity', prefix), dest='capacity', type=int, default=5000, help='Size of the replay buffer.')
+        parser.add_argument(
+            kls.prefix_arg_name('capacity', prefix),
+            dest='capacity',
+            type=int,
+            default=5000,
+            help='Size of the replay buffer.')
 
     def __init__(self, capacity, ob_space, ac_space):
         # TODO handle more spaces
@@ -228,7 +256,7 @@ class DqnTrainer(Parsable):
 
             # Interact and generate data
             for i in xrange(update_interval):
-                v_ob = Variable(torch.FloatTensor([ob.astype('float')]))
+                v_ob = self.model.preprocess_obs([ob])
                 q = self.model.q(v_ob)
                 epsilon = linear_schedule(self.initial_exploration, self.terminal_exploration, 0, self.exploration_length, t)
                 t_ac = self.sample_ac(q, epsilon)
@@ -256,13 +284,14 @@ class DqnTrainer(Parsable):
                 # Action-value estimation
                 # TD(0)-error = Q(s, a) - (r + gamma * V(s')) where V(s') = max_a' Q(s', a')
                 v_acs = Variable(torch.from_numpy(acs)).view(-1, 1)
-                qs = self.model.q(Variable(torch.from_numpy(obs).float()))
+                v_obs = self.model.preprocess_obs(obs)
+                qs = self.model.q(v_obs)
                 ac_qs = qs.gather(1, v_acs).squeeze(-1)
                 # Copy model to target model
                 if step % self.target_update_interval == 0:
                     copy_params(self.model, self.target_model)
                 nonterminals = Variable(1 - torch.from_numpy(dones.astype('float')).float())
-                v_next_obs = Variable(torch.from_numpy(next_obs).float())
+                v_next_obs = self.model.preprocess_obs(next_obs)
                 if self.double_dqn:
                     # Double DQN from Hasselt et al. Deep Reinforcement Learning with Double Q-learning
                     _, max_acs = self.model.q(v_next_obs).max(1)
@@ -313,7 +342,34 @@ class DqnTrainer(Parsable):
         return t, episode, step
 
 
-# TODO add tabular Q model
+@model_registry.register('dqn.tab')
+class DqnTab(DqnModel):
+    @classmethod
+    def add_args(kls, parser, prefix):
+        parser.add_argument(
+            kls.prefix_arg_name('init-q', prefix),
+            dest='initial_q',
+            type=float,
+            default=1,
+            help='Initial Q-values. Positive to encourage exploration. None for random initialization of Q-values.')
+
+    def __init__(self, ob_space, ac_space, initial_q):
+        super(DqnTab, self).__init__(ob_space)
+        assert isinstance(ob_space, spaces.Discrete), '`ob_space` can only support `spaces.Discrete`.'
+        assert isinstance(ac_space, spaces.Discrete), '`ac_space` can only support `spaces.Discrete`.'
+
+        self.n_actions = ac_space.n
+        self.n_states = ob_space.n
+        self.q_values = nn.Linear(self.n_states, self.n_actions, bias=None)
+        if initial_q is not None:
+            nn.init.constant(self.q_values.weight, initial_q)
+
+    def forward(self, v_obs):
+        # One-hot encode `v_obs`
+        oh_obs = torch.zeros(v_obs.size(0), self.n_states)
+        oh_obs.scatter_(1, v_obs.data.long().view(-1, 1), 1)
+        oh_obs = Variable(oh_obs)
+        return self.q_values(oh_obs)
 
 
 @model_registry.register('dqn.mlp')
@@ -321,11 +377,22 @@ class DqnMlp(DqnModel):
     @classmethod
     def add_args(kls, parser, prefix):
         super().add_args(parser, prefix)
-        parser.add_argument(kls.prefix_arg_name('layers', prefix), dest='hiddens', nargs='*', type=int, default=[64], help='Dimensionality of each hidden layers.')
-        parser.add_argument(kls.prefix_arg_name('activation', prefix), dest='activation_fn', default='elu', choices=['elu', 'relu', 'sigmoid', 'tanh'], help='Non-linearity function to use after each linear layer.')
+        parser.add_argument(
+            kls.prefix_arg_name('layers', prefix),
+            dest='hiddens',
+            nargs='*',
+            type=int,
+            default=[64],
+            help='Dimensionality of each hidden layers.')
+        parser.add_argument(
+            kls.prefix_arg_name('activation', prefix),
+            dest='activation_fn',
+            default='elu',
+            choices=['elu', 'relu', 'sigmoid', 'tanh'],
+            help='Non-linearity function to use after each linear layer.')
 
     def __init__(self, ob_space, ac_space, hiddens, activation_fn):
-        super(DqnMlp, self).__init__()
+        super(DqnMlp, self).__init__(ob_space)
         assert isinstance(ob_space, spaces.Box) and len(ob_space.shape) == 1, '`ob_space` can only support rank-1 `spaces.Box`.'
         assert isinstance(ac_space, spaces.Discrete), '`ac_space` can only support `spaces.Discrete`.'
 
@@ -339,13 +406,53 @@ class DqnMlp(DqnModel):
             self.fc_layers.append(lin)
         self.activation_fn = getattr(f, activation_fn)
 
-    def forward(self, ob):
-        net = ob
+    def forward(self, v_obs):
+        net = v_obs
         for fc in self.fc_layers[:-1]:
             net = fc(net)
             net = self.activation_fn(net)
         net = self.fc_layers[-1](net)
         return net
+
+
+@model_registry.register('dqn.tiled-tab')
+class DqnTiledTab(DqnTab):
+    @classmethod
+    def add_args(kls, parser, prefix):
+        super().add_args(parser, prefix)
+        parser.add_argument(
+            kls.prefix_arg_name('tile-shape', prefix),
+            dest='ob_grid_shape',
+            type=int,
+            nargs='+',
+            default=[16],
+            help='Shape of the divided observation space.',
+        )
+
+    def __init__(self, ob_space, ac_space, initial_q, ob_grid_shape):
+        assert isinstance(ob_space, spaces.Box), '`ob_space` needs to be an instance of `spaces.Box`.'
+        assert len(ob_space.shape) == len(ob_grid_shape), '`ob_grid_shape` must have the same length as `ob_space.shape`.'
+        self.ob_grid_shape = np.asarray(ob_grid_shape)
+        self.span = ob_space.high - ob_space.low
+        self.original_ob_space = ob_space
+        self.ob_grid = 1 / self.ob_grid_shape
+        self.tiled_ob_space = spaces.Discrete(int(np.prod(ob_grid_shape)))
+        self.offsets = np.cumprod(np.concatenate([ob_grid_shape[1:], [1]])[::-1])[::-1]
+        super().__init__(self.tiled_ob_space, ac_space, initial_q)
+
+    def tile_obs(self, obs):
+        x = (np.asarray(obs) - np.expand_dims(self.original_ob_space.low, 0)) / np.expand_dims(self.span, 0)
+        idx = np.floor(x * self.ob_grid_shape)
+        y = np.sum(idx * self.offsets, axis=1, dtype='int')
+        return y
+
+    def preprocess_obs(self, obs):
+        obs = self.tile_obs(obs)
+        v_obs = Variable(torch.from_numpy(obs).long())
+        return v_obs
+
+
+# TODO rbf MLP
 
 
 # TODO CNN model

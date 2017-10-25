@@ -29,6 +29,8 @@ if __name__ == '__main__':
     parser.add_argument('--render', action='store_true', help='Show the environment.')
     parser.add_argument('-s', '--seed', type=int, help='Random seed.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Show more logs.')
+    # TODO support simulators
+    parser.add_argument('--sim', help='Simulator id.')
 
     # Watch mode
     parser.add_argument('-w', '--watch', action='store_true', help='Watch a log directory to evaluate latest checkpoints.')

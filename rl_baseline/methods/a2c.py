@@ -22,6 +22,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 
+# TODO make it Parsable-compatible
 class A2cModel(StochasticPolicy, StateValue, nn.Module):
     def __init__(self, *args, **kwargs):
         super(A2cModel, self).__init__(*args, **kwargs)
