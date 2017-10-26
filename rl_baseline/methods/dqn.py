@@ -58,7 +58,6 @@ class DqnModel(Policy, ActionValue, StateValue, nn.Module, Parsable):
             ob : `self.ob_space`
                 A single observation from the observation space.
         '''
-        # v_ob = Variable(torch.FloatTensor([ob.astype('float')]))
         v_ob = self.preprocess_obs([ob])
         q = self.q(v_ob)
         max_q, max_ac = q.max(1)
@@ -268,6 +267,7 @@ class DqnTrainer(Parsable):
                     self.env.render()
                 episode_return += r
                 # Add (s, a, r, s') to replay buffer
+                # TODO save preprocessed obs instead of raw obs?
                 self.replay_buffer.add(prev_ob, t_ac, r, ob, done)
 
                 if done:
@@ -458,4 +458,41 @@ class DqnTiledTab(DqnTab):
 # TODO CNN model
 
 
-# TODO the DQN model from the DQN paper
+@model_registry.register('dqn.deepmind')
+class DqnDeepMind(DqnModel):
+    '''The model architecture from Mnih et al. Human-level control through deep reinforcement learning.'''
+    def __init__(self, ob_space, ac_space):
+        super().__init__(ob_space)
+
+        assert isinstance(ac_space, spaces.Discrete), '`ac_space` has to be an instance of `spaces.Discrete`.'
+        self.ob_width = 84
+        self.n_prev_frames = 4
+        self.n_actions = ac_space.n
+        # Assume that the input is an 4 x 84 x 84 image (4 stacked grayscale frames)
+        self.cnn0 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+        # 20 x 20 x 32
+        self.cnn1 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        # 9 x 9 x 64
+        self.cnn2 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        # 7 x 7 x 64 = 3136
+        self.fc0 = nn.Linear(3136, 512)
+        # 512
+        self.fc1 = nn.Linear(512, self.n_actions)
+        self.activation_fn = f.relu
+        # Buffer for composing v_obs in acting
+        # self.ob_buffer = np.zeros((self.n_prev_frames, self.ob_width, self.ob_width))
+
+    def forward(self, v_obs):
+        # Normalize
+        net = v_obs / 255.
+        net = self.cnn0(net)
+        net = self.activation_fn(net)
+        net = self.cnn1(net)
+        net = self.activation_fn(net)
+        net = self.cnn2(net)
+        net = self.activation_fn(net)
+        net = net.view(-1, 3136)
+        net = self.fc0(net)
+        net = self.activation_fn(net)
+        net = self.fc1(net)
+        return net

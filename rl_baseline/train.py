@@ -37,6 +37,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-summary', dest='write_summary', action='store_false', help='Do not write summary protobuf for TensorBoard.')
     parser.add_argument('--episode-report-interval', type=int, default=1, help='Report every N-many episodes.')
     parser.add_argument('--step-report-interval', type=int, default=400, help='Report every N-many steps.')
+    parser.add_argument('--save-interval', type=int, default=100, help='Save every N-many steps.')
     parser.add_argument('-lr', '--learning-rate', type=float, default=0.05, help='Initial learning rate.')
     parser.add_argument('--seed', type=int, default=None, help='Random seed.')
     parser.add_argument('-n', '--max-ticks', type=int, default=10**4, help='Maximum number of ticks to train.')
@@ -127,6 +128,7 @@ if __name__ == '__main__':
         batch_size=args.batch_size,
         episode_report_interval=args.episode_report_interval,
         step_report_interval=args.step_report_interval,
+        checkpoint_interval=args.save_interval,
         render=args.render,
     )
 
