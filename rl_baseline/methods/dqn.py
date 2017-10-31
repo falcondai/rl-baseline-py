@@ -11,8 +11,9 @@ import torch.nn.functional as f
 from torch.nn.utils import clip_grad_norm
 
 from rl_baseline.core import Policy, StateValue, ActionValue, Parsable
+from rl_baseline.common import evaluate_policy
 from rl_baseline.registry import method_registry, model_registry, optimizer_registry
-from rl_baseline.util import global_norm, log_format, write_tb_event, linear_schedule, copy_params
+from rl_baseline.util import global_norm, log_format, write_tb_event, linear_schedule, copy_params, report_perf
 
 
 # Set up logger
@@ -111,6 +112,7 @@ class ReplayBuffer(Parsable):
         return self.obs[idxes], self.acs[idxes], self.rs[idxes], self.next_obs[idxes], self.dones[idxes]
 
 
+# TODO add Trainer base class
 @method_registry.register('dqn')
 class DqnTrainer(Parsable):
     '''Q-learning'''
@@ -169,10 +171,52 @@ class DqnTrainer(Parsable):
             dest='double_dqn',
             action='store_true',
             help='Use double DQN. See Hasselt et al (2015).')
+        parser.add_argument(
+            kls.prefix_arg_name('update-interval', prefix),
+            dest='update_interval',
+            type=int,
+            default=1,
+            help='Maximum number of ticks to collect before updating the parameters.',
+        )
+        parser.add_argument(
+            kls.prefix_arg_name('batch-size', prefix),
+            dest='batch_size',
+            type=int,
+            default=32,
+            help="Number of (s, a, r, s') transitions to draw from replay buffer to use in an update. The expected usage of a transition before being discarded is lower bounded by `batch_size` / `update_interval`.",
+        )
+        parser.add_argument(
+            kls.prefix_arg_name('gamma', prefix),
+            dest='gamma',
+            type=float,
+            default=1,
+            help='The future reward discount.',
+        )
         # Add replay buffer's arguments
         ReplayBuffer.add_args(parser, prefix)
 
-    def __init__(self, env, model, target_model, optimizer, capacity, criterion, max_grad_norm, target_update_interval, exploration_type, initial_exploration, terminal_exploration, exploration_length, minimal_replay_buffer_occupancy, double_dqn, writer=None, saver=None):
+    def __init__(self,
+                 env,
+                 model,
+                 target_model,
+                 optimizer,
+                 capacity,
+                 criterion,
+                 max_grad_norm,
+                 target_update_interval,
+                 exploration_type,
+                 initial_exploration,
+                 terminal_exploration,
+                 exploration_length,
+                 minimal_replay_buffer_occupancy,
+                 double_dqn,
+                 update_interval,
+                 batch_size,
+                 gamma,
+                 eval_env=None,
+                 eval_summary_writer=None,
+                 train_summary_writer=None,
+                 saver=None):
         assert isinstance(model, DqnModel), 'The model argument needs to be an instance of `DqnModel`.'
         assert criterion in ['l2', 'huber'], '`criterion` has to be one of {`l2`, `huber`}.'
         assert exploration_type in ['softmax', 'epsilon'], 'Only supports `softmax` and `epsilon`-greedy exploration strategies.'
@@ -183,7 +227,9 @@ class DqnTrainer(Parsable):
         self.optimizer = optimizer
 
         # Optional utilities for logging
-        self.writer = writer
+        self.train_summary_writer = train_summary_writer
+        self.eval_summary_writer = eval_summary_writer
+        self.eval_env = eval_env
         self.saver = saver
 
         # Total tick count
@@ -197,6 +243,9 @@ class DqnTrainer(Parsable):
         self.target_update_interval = target_update_interval
         self.minimal_replay_buffer_occupancy = minimal_replay_buffer_occupancy
         self.double_dqn = double_dqn
+        self.batch_size = batch_size
+        self.update_interval = update_interval
+        self.gamma = gamma
 
         self.replay_buffer = ReplayBuffer(capacity, env.observation_space, env.action_space)
 
@@ -220,15 +269,18 @@ class DqnTrainer(Parsable):
                 t_ac = ac.data[0]
         return t_ac
 
-    def train_for(self, max_ticks, update_interval=1, batch_size=32, episode_report_interval=1, step_report_interval=1, checkpoint_interval=100, render=False):
+    def train_for(self,
+                  max_ticks,
+                  episode_report_interval=1,
+                  step_report_interval=1,
+                  eval_interval=1,
+                  n_eval_episodes=10,
+                  checkpoint_interval=100,
+                  render=False):
         '''
         Args:
             max_ticks : int
                 The number of ticks to sample from `self.env`.
-            update_interval : int
-                The maximum number of ticks to sample from `self.env` before updating the parameters.
-            batch_size : int
-                The number of (s, a, r, s') transitions to draw from replay buffer to use in an update. The expected usage of a transition before being discarded is lower bounded by `batch_size` / `update_interval`.
         '''
         done, t, step, episode = True, 0, 0, 0
         while t < max_ticks:
@@ -237,13 +289,13 @@ class DqnTrainer(Parsable):
                 # Report the concluded episode
                 if t > 0 and episode % episode_report_interval == 0:
                     logger.info('Episode %i length %i return %g', episode, episode_length, episode_return)
-                    if self.writer is not None:
-                        write_tb_event(self.writer, episode, {
+                    if self.train_summary_writer is not None:
+                        write_tb_event(self.train_summary_writer, episode, {
                             'episodic/length': episode_length,
                             'episodic/return': episode_return,
                         })
 
-                        write_tb_event(self.writer, t, {
+                        write_tb_event(self.train_summary_writer, t, {
                             'metrics/episode_return': episode_return,
                         })
 
@@ -254,7 +306,7 @@ class DqnTrainer(Parsable):
                 episode += 1
 
             # Interact and generate data
-            for i in xrange(update_interval):
+            for i in xrange(self.update_interval):
                 v_ob = self.model.preprocess_obs([ob])
                 q = self.model.q(v_ob)
                 epsilon = linear_schedule(self.initial_exploration, self.terminal_exploration, 0, self.exploration_length, t)
@@ -279,7 +331,7 @@ class DqnTrainer(Parsable):
                 self.optimizer.zero_grad()
 
                 # Sample from replay buffer
-                obs, acs, rs, next_obs, dones = self.replay_buffer.sample_sars(batch_size)
+                obs, acs, rs, next_obs, dones = self.replay_buffer.sample_sars(self.batch_size)
 
                 # Action-value estimation
                 # TD(0)-error = Q(s, a) - (r + gamma * V(s')) where V(s') = max_a' Q(s', a')
@@ -293,16 +345,13 @@ class DqnTrainer(Parsable):
                 nonterminals = Variable(1 - torch.from_numpy(dones.astype('float')).float())
                 v_next_obs = self.model.preprocess_obs(next_obs)
                 if self.double_dqn:
-                    # Double DQN from Hasselt et al. Deep Reinforcement Learning with Double Q-learning
+                    # Double DQN from Hasselt et al. _Deep Reinforcement Learning with Double Q-learning_
                     _, max_acs = self.model.q(v_next_obs).max(1)
                     vas = self.target_model.q(v_next_obs).gather(1, max_acs.view(-1, 1)).squeeze(-1)
                 else:
                     # Standard DQN with a target Q-network
                     vas = self.target_model.va(v_next_obs).squeeze(-1)
-                # write_tb_event(self.writer, t, {
-                #     'temp/max_q': vas.max().data[0],
-                # })
-                vas = nonterminals * vas
+                vas = self.gamma * nonterminals * vas
                 target_q = Variable(torch.FloatTensor(rs)) + vas
                 q_loss = self.q_crit(ac_qs, target_q.detach())
 
@@ -317,6 +366,8 @@ class DqnTrainer(Parsable):
                 loss.backward()
 
                 # Clip the gradient
+                # TODO compare this with clipping the TD(0)-loss, as done in the original DQN implementation.
+                # TODO what if we drop outliers, essentially a kind of dynamic loss clipping
                 if self.max_grad_norm > 0:
                     clip_grad_norm(self.model.parameters(), self.max_grad_norm)
 
@@ -326,14 +377,25 @@ class DqnTrainer(Parsable):
                     param_norm = global_norm(self.model.parameters())
                     grad_norm = global_norm([param.grad for param in self.model.parameters() if param.grad is not None])
 
-                    logger.info('Step %i total_loss %g value_loss %g epsilon %g grad_norm %g param_norm %g', step, loss.data[0], q_loss.data[0], epsilon, grad_norm.data[0], param_norm.data[0])
-                    if self.writer is not None:
-                        write_tb_event(self.writer, t, {
+                    logger.info('Step %i total_loss %.2f value_loss %.2f epsilon %.2f grad_norm %.2f param_norm %.2f', step, loss.data[0], q_loss.data[0], epsilon, grad_norm.data[0], param_norm.data[0])
+                    if self.train_summary_writer is not None:
+                        write_tb_event(self.train_summary_writer, t, {
                             'train_loss/total_loss': loss.data[0],
                             'train_loss/value_loss': q_loss.data[0],
                             'train_extra/grad_norm': grad_norm.data[0],
                             'train_extra/param_norm': param_norm.data[0],
                             'train_extra/epsilon': epsilon,
+                        })
+
+                # Evaluate the model
+                if eval_interval != 0 and step % eval_interval == 0:
+                    rets, lens = evaluate_policy(self.eval_env, self.model, n_eval_episodes, False)
+                    avg_ret = np.mean(rets)
+                    logger.info('Step %i eval:', step)
+                    report_perf(rets, lens)
+                    if self.eval_summary_writer is not None:
+                        write_tb_event(self.eval_summary_writer, t, {
+                            'metrics/episode_return': avg_ret,
                         })
 
                 self.optimizer.step()
@@ -479,8 +541,6 @@ class DqnDeepMind(DqnModel):
         # 512
         self.fc1 = nn.Linear(512, self.n_actions)
         self.activation_fn = f.relu
-        # Buffer for composing v_obs in acting
-        # self.ob_buffer = np.zeros((self.n_prev_frames, self.ob_width, self.ob_width))
 
     def forward(self, v_obs):
         # Normalize

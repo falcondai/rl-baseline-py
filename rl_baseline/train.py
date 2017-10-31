@@ -38,15 +38,17 @@ if __name__ == '__main__':
     parser.add_argument('--episode-report-interval', type=int, default=1, help='Report every N-many episodes.')
     parser.add_argument('--step-report-interval', type=int, default=400, help='Report every N-many steps.')
     parser.add_argument('--save-interval', type=int, default=100, help='Save every N-many steps.')
+    parser.add_argument('--eval-interval', type=int, default=0, help='Evaluate every N-many steps. 0 disables the periodic evaluation.')
+    parser.add_argument('--n-eval-episodes', type=int, default=10, help='Number of episodes used to evaluate.')
     parser.add_argument('-lr', '--learning-rate', type=float, default=0.05, help='Initial learning rate.')
-    parser.add_argument('--seed', type=int, default=None, help='Random seed.')
+    parser.add_argument('--seed', type=int, default=None, help='Random seed. Accepts float but will be cast to integer.')
     parser.add_argument('-n', '--max-ticks', type=int, default=10**4, help='Maximum number of ticks to train.')
-    parser.add_argument('-b', '--batch-size', type=int, default=20, help='Batch size.')
+    parser.add_argument('-b', '--batch-size', type=int, default=32, help='Batch size.')
     parser.add_argument('-o', '--optimizer', default='SGD', choices=optimizer_registry.all().keys(), help='Optimizer to use.')
     parser.add_argument('--render', action='store_true', help='Show the environment.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Show more logs.')
     # TODO add LR scheduler
-    parser.add_argument('--lr-scheduler', default='none', help='Scheduler for learning rates.')
+    parser.add_argument('--lr-scheduler', default=None, help='Scheduler for learning rates.')
     # TODO restore from checkpoint
     parser.add_argument('-f', '--restore', help='Path to an existing checkpoint.')
     # TODO add GPU support
@@ -76,8 +78,10 @@ if __name__ == '__main__':
 
     # Summary for TensorBoard monitoring
     if args.write_summary:
-        summary_dir = os.path.join(args.log_dir, 'train')
-        writer = create_tb_writer(summary_dir)
+        train_summary_dir = os.path.join(args.log_dir, 'train')
+        train_summary_writer = create_tb_writer(train_summary_dir)
+        eval_summary_dir = os.path.join(args.log_dir, 'eval')
+        eval_summary_writer = create_tb_writer(eval_summary_dir)
 
     # Set up the environment
     env_id = args.environment
@@ -119,22 +123,35 @@ if __name__ == '__main__':
         logger.info('Parameter %s size %r', name, param.size())
     logger.info('Parameters has %i elements.', param_count)
     opt = opt_cls(params=mod.parameters(), lr=args.learning_rate)
-    saver = Saver(args.log_dir, mod, opt, vars(mod_args), vars(met_args))
-    tra = met_cls(env, mod, target_mod, opt, writer=writer, saver=saver, **vars(met_args))
+    saver = Saver(args.log_dir, mod, opt, model_args=vars(mod_args), method_args=vars(met_args))
+    eval_env = env_registry[env_id].make()
+    tra = met_cls(
+        env=env,
+        model=mod,
+        target_model=target_mod,
+        optimizer=opt,
+        eval_env=eval_env,
+        train_summary_writer=train_summary_writer,
+        eval_summary_writer=eval_summary_writer,
+        saver=saver,
+        **vars(met_args),
+    )
 
     # Training
     tick, episode, step = tra.train_for(
         max_ticks=args.max_ticks,
-        batch_size=args.batch_size,
         episode_report_interval=args.episode_report_interval,
         step_report_interval=args.step_report_interval,
         checkpoint_interval=args.save_interval,
+        eval_interval=args.eval_interval,
+        n_eval_episodes=args.n_eval_episodes,
         render=args.render,
     )
 
     # Wrap up
     if args.write_summary:
-        writer.close()
+        train_summary_writer.close()
+        eval_summary_writer.close()
 
     # Save one last checkpoint
     saver.save_checkpoint(tick, episode, step)
