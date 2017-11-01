@@ -155,6 +155,12 @@ class DqnTrainer(Parsable):
             default=0.01,
             help='Terminal value for the exploration factor.')
         parser.add_argument(
+            kls.prefix_arg_name('exp-start', prefix),
+            dest='exploration_start',
+            type=int,
+            default=0,
+            help='Start of the linear decay schedule of the exloration factor.')
+        parser.add_argument(
             kls.prefix_arg_name('exp-length', prefix),
             dest='exploration_length',
             type=int,
@@ -207,6 +213,7 @@ class DqnTrainer(Parsable):
                  exploration_type,
                  initial_exploration,
                  terminal_exploration,
+                 exploration_start,
                  exploration_length,
                  minimal_replay_buffer_occupancy,
                  double_dqn,
@@ -224,6 +231,8 @@ class DqnTrainer(Parsable):
         self.env = env
         self.model = model
         self.target_model = target_model
+        # Target model is initialized to be the same as the current model
+        copy_params(self.model, self.target_model)
         self.optimizer = optimizer
 
         # Optional utilities for logging
@@ -239,6 +248,7 @@ class DqnTrainer(Parsable):
         self.exploration_type = exploration_type
         self.initial_exploration = initial_exploration
         self.terminal_exploration = terminal_exploration
+        self.exploration_start = exploration_start
         self.exploration_length = exploration_length
         self.target_update_interval = target_update_interval
         self.minimal_replay_buffer_occupancy = minimal_replay_buffer_occupancy
@@ -309,7 +319,7 @@ class DqnTrainer(Parsable):
             for i in xrange(self.update_interval):
                 v_ob = self.model.preprocess_obs([ob])
                 q = self.model.q(v_ob)
-                epsilon = linear_schedule(self.initial_exploration, self.terminal_exploration, 0, self.exploration_length, t)
+                epsilon = linear_schedule(self.initial_exploration, self.terminal_exploration, self.exploration_start, self.exploration_length, t)
                 t_ac = self.sample_ac(q, epsilon)
                 prev_ob = ob
                 ob, r, done, extra = self.env.step(t_ac)
@@ -522,8 +532,8 @@ class DqnTiledTab(DqnTab):
 
 
 @model_registry.register('dqn.deepmind')
-class DqnDeepMind(DqnModel):
-    '''The model architecture from Mnih et al. _Human-level control through deep reinforcement learning_.'''
+class DqnDeepMindModel(DqnModel):
+    '''The model architecture from Mnih et al. _Human-level control through deep reinforcement learning_. A consistent definition is given in the published code: https://github.com/deepmind/dqn/blob/master/dqn/convnet_atari3.lua'''
     def __init__(self, ob_space, ac_space):
         super().__init__(ob_space)
 
@@ -538,7 +548,8 @@ class DqnDeepMind(DqnModel):
         # 9 x 9 x 64
         self.cnn2 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
         # 7 x 7 x 64 = 3136
-        self.fc0 = nn.Linear(3136, 512)
+        self.n_pre_fc = 7 * 7 * 64
+        self.fc0 = nn.Linear(self.n_pre_fc, 512)
         # 512
         self.fc1 = nn.Linear(512, self.n_actions)
         self.activation_fn = f.relu
@@ -552,7 +563,7 @@ class DqnDeepMind(DqnModel):
         net = self.activation_fn(net)
         net = self.cnn2(net)
         net = self.activation_fn(net)
-        net = net.view(-1, 3136)
+        net = net.view(-1, self.n_pre_fc)
         net = self.fc0(net)
         net = self.activation_fn(net)
         net = self.fc1(net)
