@@ -122,7 +122,7 @@ class DqnTrainer(Parsable):
             kls.prefix_arg_name('criterion', prefix),
             dest='criterion',
             choices=['l2', 'huber'],
-            default='huber',
+            default='l2',
             help='Loss functional.')
         parser.add_argument(
             kls.prefix_arg_name('max-grad-norm', prefix),
@@ -342,7 +342,6 @@ class DqnTrainer(Parsable):
                 # Copy model to target model
                 if step % self.target_update_interval == 0:
                     copy_params(self.model, self.target_model)
-                nonterminals = Variable(1 - torch.from_numpy(dones.astype('float')).float())
                 v_next_obs = self.model.preprocess_obs(next_obs)
                 if self.double_dqn:
                     # Double DQN from Hasselt et al. _Deep Reinforcement Learning with Double Q-learning_
@@ -351,8 +350,9 @@ class DqnTrainer(Parsable):
                 else:
                     # Standard DQN with a target Q-network
                     vas = self.target_model.va(v_next_obs).squeeze(-1)
+                nonterminals = Variable(1 - torch.from_numpy(dones.astype('float')).float())
                 vas = self.gamma * nonterminals * vas
-                target_q = Variable(torch.FloatTensor(rs)) + vas
+                target_q = Variable(torch.from_numpy(rs)).float() + vas
                 q_loss = self.q_crit(ac_qs, target_q.detach())
 
                 # Total objective function
@@ -366,7 +366,7 @@ class DqnTrainer(Parsable):
                 loss.backward()
 
                 # Clip the gradient
-                # TODO compare this with clipping the TD(0)-loss, as done in the original DQN implementation.
+                # TODO compare this with clipping the TD(0) gradient over each sample, as done in the original DQN implementation. This is the same as scaling the sample's loss
                 # TODO what if we drop outliers, essentially a kind of dynamic loss clipping
                 if self.max_grad_norm > 0:
                     clip_grad_norm(self.model.parameters(), self.max_grad_norm)
@@ -388,7 +388,7 @@ class DqnTrainer(Parsable):
                         })
 
                 # Evaluate the model
-                if eval_interval != 0 and step % eval_interval == 0:
+                if eval_interval != 0 and self.eval_env is not None and step % eval_interval == 0:
                     rets, lens = evaluate_policy(self.eval_env, self.model, n_eval_episodes, False)
                     avg_ret = np.mean(rets)
                     logger.info('Step %i eval:', step)
@@ -412,17 +412,18 @@ class DqnTab(DqnModel):
             kls.prefix_arg_name('init-q', prefix),
             dest='initial_q',
             type=float,
-            default=1,
-            help='Initial Q-values. Positive to encourage exploration. None for random initialization of Q-values.')
+            default=0,
+            help='Initial Q-values. Positive to encourage exploration. None for random initialization of Q-values.',
+        )
 
     def __init__(self, ob_space, ac_space, initial_q):
         super(DqnTab, self).__init__(ob_space)
         assert isinstance(ob_space, spaces.Discrete), '`ob_space` can only support `spaces.Discrete`.'
         assert isinstance(ac_space, spaces.Discrete), '`ac_space` can only support `spaces.Discrete`.'
 
-        self.n_actions = ac_space.n
-        self.n_states = ob_space.n
-        self.q_values = nn.Linear(self.n_states, self.n_actions, bias=None)
+        self.n_actions = int(ac_space.n)
+        self.n_states = int(ob_space.n)
+        self.q_values = nn.Linear(int(self.n_states), int(self.n_actions), bias=None)
         if initial_q is not None:
             nn.init.constant(self.q_values.weight, initial_q)
 
@@ -493,7 +494,7 @@ class DqnTiledTab(DqnTab):
 
     def __init__(self, ob_space, ac_space, initial_q, ob_grid_shape):
         assert isinstance(ob_space, spaces.Box), '`ob_space` needs to be an instance of `spaces.Box`.'
-        assert len(ob_space.shape) == len(ob_grid_shape), '`ob_grid_shape` must have the same length as `ob_space.shape`.'
+        assert ob_space.shape[0] == len(ob_grid_shape), '`ob_grid_shape` must have the same length as `ob_space.shape`.'
         self.ob_grid_shape = np.asarray(ob_grid_shape)
         self.span = ob_space.high - ob_space.low
         self.original_ob_space = ob_space
@@ -522,7 +523,7 @@ class DqnTiledTab(DqnTab):
 
 @model_registry.register('dqn.deepmind')
 class DqnDeepMind(DqnModel):
-    '''The model architecture from Mnih et al. Human-level control through deep reinforcement learning.'''
+    '''The model architecture from Mnih et al. _Human-level control through deep reinforcement learning_.'''
     def __init__(self, ob_space, ac_space):
         super().__init__(ob_space)
 

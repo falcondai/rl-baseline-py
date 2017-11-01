@@ -124,7 +124,8 @@ if __name__ == '__main__':
     logger.info('Parameters has %i elements.', param_count)
     opt = opt_cls(params=mod.parameters(), lr=args.learning_rate)
     saver = Saver(args.log_dir, mod, opt, model_args=vars(mod_args), method_args=vars(met_args))
-    eval_env = env_registry[env_id].make()
+    # Instantiate a separate environment for evaluation
+    eval_env = env_registry[env_id].make() if args.eval_interval != 0 else None
     tra = met_cls(
         env=env,
         model=mod,
