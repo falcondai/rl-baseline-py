@@ -48,6 +48,11 @@ class Saver:
         self.model_args = model_args
         self.method_args = method_args
 
+        # Create the log directory
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+            logger.debug('Created the log directory %s', self.log_dir)
+
     def save_checkpoint(self, tick, episode, step):
         checkpoint = {
             'tick': tick,
