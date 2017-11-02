@@ -101,3 +101,11 @@ def report_perf(returns, lengths, log_level=logging.INFO):
     logger.log(log_level, 'Total %i episodes', len(returns))
     logger.log(log_level, 'Episode return mean/max/min/median %g/%g/%g/%g', np.mean(returns), np.max(returns), np.min(returns), np.median(returns))
     logger.log(log_level, 'Episode length mean/max/min/median %g/%g/%g/%g', np.mean(lengths), np.max(lengths), np.min(lengths), np.median(lengths))
+
+def report_model_stats(model):
+    logger.info('Model architecture %r', model)
+    param_count = 0
+    for name, param in model.named_parameters():
+        param_count += param.nelement()
+        logger.info('Parameter %s size %r', name, param.size())
+    logger.info('Parameters has %i elements.', param_count)

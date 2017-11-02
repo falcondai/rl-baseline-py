@@ -3,15 +3,13 @@ from six.moves import xrange
 import logging
 
 import numpy as np
+from gym import spaces
+from torch import nn
 
-from rl_baseline.util import log_format, report_perf
+from rl_baseline.util import report_perf, logger
 from rl_baseline.core import Policy, Parsable
 from rl_baseline.registry import model_registry
 
-
-logging.basicConfig(format=log_format)
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
 
 @model_registry.register('random')
 class RandomPolicy(Policy, Parsable):
@@ -96,15 +94,23 @@ class ExhaustivePolicy(Policy, Parsable):
         return acs[max_ac_idx]
 
 
-def evaluate_policy(env, model, n_episodes, render):
-    assert isinstance(model, Policy), '`model` must be an instance of `Policy`.'
+def evaluate_policy(env, policy, n_episodes, render, gpu_id=None, seed=None):
+    assert isinstance(policy, Policy), '`policy` must be an instance of `Policy`.'
+    # Policy is also a trainable model
+    is_model = isinstance(policy, nn.Module)
 
+    if seed is not None:
+        logger.debug('Eval env is seeded with %i' % seed)
+        env.seed(seed)
     lens, rets = [], []
     for episode in xrange(n_episodes):
         ob = env.reset()
         done, length, ret = False, 0, 0
         while not done:
-            ac = model.act(ob)
+            if is_model:
+                ac = policy.act(ob, gpu_id=gpu_id)
+            else:
+                ac = policy.act(ob)
             ob, r, done, extra = env.step(ac)
             if render:
                 env.render()

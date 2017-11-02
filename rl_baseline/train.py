@@ -17,7 +17,7 @@ import gym
 gym.undo_logger_setup()
 
 from rl_baseline.registration import env_registry, optimizer_registry, model_registry, method_registry
-from rl_baseline.util import log_format, global_norm, copy_params, Saver, fix_random_seeds, create_tb_writer
+from rl_baseline.util import log_format, global_norm, copy_params, Saver, fix_random_seeds, create_tb_writer, report_model_stats
 
 
 logging.basicConfig(format=log_format)
@@ -47,12 +47,11 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--optimizer', default='SGD', choices=optimizer_registry.all().keys(), help='Optimizer to use.')
     parser.add_argument('--render', action='store_true', help='Show the environment.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Show more logs.')
+    parser.add_argument('--gpu', dest='gpu_id', type=int, default=None, help='GPU id to use.')
     # TODO add LR scheduler
     parser.add_argument('--lr-scheduler', default=None, help='Scheduler for learning rates.')
     # TODO restore from checkpoint
     parser.add_argument('-f', '--restore', help='Path to an existing checkpoint.')
-    # TODO add GPU support
-    parser.add_argument('--gpu', dest='gpu_id', default=None, help='GPU id to use.')
 
     args, extra_args = parser.parse_known_args()
 
@@ -114,14 +113,12 @@ if __name__ == '__main__':
     # Initialize
     mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
     target_mod = mod_cls(env.observation_space, env.action_space, **vars(mod_args))
-    copy_params(mod, target_mod)
+    if args.gpu_id is not None:
+        # Move models to GPU
+        mod = mod.cuda(args.gpu_id)
+        target_mod = target_mod.cuda(args.gpu_id)
     # Show model statistics
-    logger.info('Model architecture %r', mod)
-    param_count = 0
-    for name, param in mod.named_parameters():
-        param_count += param.nelement()
-        logger.info('Parameter %s size %r', name, param.size())
-    logger.info('Parameters has %i elements.', param_count)
+    report_model_stats(mod)
     opt = opt_cls(params=mod.parameters(), lr=args.learning_rate)
     saver = Saver(args.log_dir, mod, opt, model_args=vars(mod_args), method_args=vars(met_args))
     # Instantiate a separate environment for evaluation
@@ -135,6 +132,7 @@ if __name__ == '__main__':
         train_summary_writer=train_summary_writer,
         eval_summary_writer=eval_summary_writer,
         saver=saver,
+        gpu_id=args.gpu_id,
         **vars(met_args),
     )
 

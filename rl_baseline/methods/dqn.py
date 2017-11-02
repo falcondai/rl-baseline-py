@@ -29,13 +29,15 @@ class DqnModel(Policy, ActionValue, StateValue, nn.Module, Parsable):
         super(DqnModel, self).__init__(*args, **kwargs)
         self.ob_space = ob_space
 
-    def preprocess_obs(self, obs):
+    def preprocess_obs(self, obs, gpu_id=None):
         '''
-        Returns suitable `Variable` for use with the model's `forward` calls.
+        Maps an environment's observations into `Variable` for use with the model's `forward` calls.
 
         Args:
             obs : [`self.ob_space`]
-                A list of observations.
+                A list of observations from environment.
+            gpu_id : int or `None`
+                Appropriate GPU id to move the `Variable` to. None for CPU.
         '''
         if isinstance(self.ob_space, spaces.Box):
             v_obs = Variable(torch.FloatTensor(np.asarray(obs, dtype='float')))
@@ -43,6 +45,8 @@ class DqnModel(Policy, ActionValue, StateValue, nn.Module, Parsable):
             v_obs = Variable(torch.from_numpy(np.asarray(obs, dtype='long')))
         # else:
         #     raise TypeError('`ob` cannot be preprocessed.')
+        if gpu_id is not None:
+            v_obs = v_obs.cuda(gpu_id)
         return v_obs
 
     def q(self, v_obs):
@@ -53,13 +57,13 @@ class DqnModel(Policy, ActionValue, StateValue, nn.Module, Parsable):
         max_q, ac = q.max(1)
         return max_q
 
-    def act(self, ob):
+    def act(self, ob, gpu_id=None):
         '''
         Args:
             ob : `self.ob_space`
                 A single observation from the observation space.
         '''
-        v_ob = self.preprocess_obs([ob])
+        v_ob = self.preprocess_obs(obs=[ob], gpu_id=gpu_id)
         q = self.q(v_ob)
         max_q, max_ac = q.max(1)
         return max_ac.data[0]
@@ -220,6 +224,7 @@ class DqnTrainer(Parsable):
                  update_interval,
                  batch_size,
                  gamma,
+                 gpu_id=None,
                  eval_env=None,
                  eval_summary_writer=None,
                  train_summary_writer=None,
@@ -231,8 +236,6 @@ class DqnTrainer(Parsable):
         self.env = env
         self.model = model
         self.target_model = target_model
-        # Target model is initialized to be the same as the current model
-        copy_params(self.model, self.target_model)
         self.optimizer = optimizer
 
         # Optional utilities for logging
@@ -240,6 +243,10 @@ class DqnTrainer(Parsable):
         self.eval_summary_writer = eval_summary_writer
         self.eval_env = eval_env
         self.saver = saver
+
+        # GPU utility
+        self.gpu_id = gpu_id
+        self.to_model_device = lambda t : t.cuda(self.gpu_id) if self.gpu_id is not None else t.cpu()
 
         # Total tick count
         self.total_ticks = 0
@@ -257,6 +264,7 @@ class DqnTrainer(Parsable):
         self.update_interval = update_interval
         self.gamma = gamma
 
+        # Replay buffer
         self.replay_buffer = ReplayBuffer(capacity, env.observation_space, env.action_space)
 
     def sample_ac(self, q, exploration):
@@ -292,6 +300,8 @@ class DqnTrainer(Parsable):
             max_ticks : int
                 The number of ticks to sample from `self.env`.
         '''
+        # Initialize target model to be the same as the current mode
+        copy_params(self.model, self.target_model)
         done, t, step, episode = True, 0, 0, 0
         while t < max_ticks:
             # Reset the environment as needed
@@ -317,7 +327,7 @@ class DqnTrainer(Parsable):
 
             # Interact and generate data
             for i in xrange(self.update_interval):
-                v_ob = self.model.preprocess_obs([ob])
+                v_ob = self.model.preprocess_obs([ob], self.gpu_id)
                 q = self.model.q(v_ob)
                 epsilon = linear_schedule(self.initial_exploration, self.terminal_exploration, self.exploration_start, self.exploration_length, t)
                 t_ac = self.sample_ac(q, epsilon)
@@ -346,13 +356,16 @@ class DqnTrainer(Parsable):
                 # Action-value estimation
                 # TD(0)-error = Q(s, a) - (r + gamma * V(s')) where V(s') = max_a' Q(s', a')
                 v_acs = Variable(torch.from_numpy(acs)).view(-1, 1)
-                v_obs = self.model.preprocess_obs(obs)
+                v_acs = self.to_model_device(v_acs)
+                v_obs = self.model.preprocess_obs(obs, self.gpu_id)
                 qs = self.model.q(v_obs)
+                # Q(s, a)
                 ac_qs = qs.gather(1, v_acs).squeeze(-1)
+                # Compute V(s') = max_a' Q(s', a')
                 # Copy model to target model
                 if step % self.target_update_interval == 0:
                     copy_params(self.model, self.target_model)
-                v_next_obs = self.model.preprocess_obs(next_obs)
+                v_next_obs = self.model.preprocess_obs(next_obs, self.gpu_id)
                 if self.double_dqn:
                     # Double DQN from Hasselt et al. _Deep Reinforcement Learning with Double Q-learning_
                     _, max_acs = self.model.q(v_next_obs).max(1)
@@ -361,8 +374,12 @@ class DqnTrainer(Parsable):
                     # Standard DQN with a target Q-network
                     vas = self.target_model.va(v_next_obs).squeeze(-1)
                 nonterminals = Variable(1 - torch.from_numpy(dones.astype('float')).float())
-                vas = self.gamma * nonterminals * vas
-                target_q = Variable(torch.from_numpy(rs)).float() + vas
+                nonterminals = self.to_model_device(nonterminals)
+                vas = nonterminals * vas
+                v_rs = Variable(torch.from_numpy(rs)).float()
+                v_rs = self.to_model_device(v_rs)
+                # Compute r + gamma * V(s')
+                target_q = v_rs + self.gamma * vas
                 q_loss = self.q_crit(ac_qs, target_q.detach())
 
                 # Total objective function
@@ -399,7 +416,7 @@ class DqnTrainer(Parsable):
 
                 # Evaluate the model
                 if eval_interval != 0 and self.eval_env is not None and step % eval_interval == 0:
-                    rets, lens = evaluate_policy(self.eval_env, self.model, n_eval_episodes, False)
+                    rets, lens = evaluate_policy(self.eval_env, self.model, n_eval_episodes, gpu_id=self.gpu_id, render=False)
                     avg_ret = np.mean(rets)
                     logger.info('Step %i eval:', step)
                     report_perf(rets, lens)
@@ -437,12 +454,18 @@ class DqnTab(DqnModel):
         if initial_q is not None:
             nn.init.constant(self.q_values.weight, initial_q)
 
-    def forward(self, v_obs):
-        # One-hot encode `v_obs`
-        oh_obs = torch.zeros(v_obs.size(0), self.n_states)
-        oh_obs.scatter_(1, v_obs.data.long().view(-1, 1), 1)
+    def preprocess_obs(self, obs, gpu_id=None):
+        obs = np.asarray(obs, dtype='int')
+        # One-hot encode `obs`
+        oh_obs = torch.zeros(len(obs), self.n_states)
+        oh_obs.scatter_(1, torch.from_numpy(obs).view(-1, 1), 1)
         oh_obs = Variable(oh_obs)
-        return self.q_values(oh_obs)
+        if gpu_id is not None:
+            oh_obs = oh_obs.cuda(gpu_id)
+        return oh_obs
+
+    def forward(self, v_obs):
+        return self.q_values(v_obs)
 
 
 @model_registry.register('dqn.mlp')
@@ -519,9 +542,11 @@ class DqnTiledTab(DqnTab):
         y = np.sum(idx * self.offsets, axis=1, dtype='int')
         return y
 
-    def preprocess_obs(self, obs):
+    def preprocess_obs(self, obs, gpu_id=None):
         obs = self.tile_obs(obs)
         v_obs = Variable(torch.from_numpy(obs).long())
+        if gpu_id is not None:
+            v_obs = v_obs.cuda(gpu_id)
         return v_obs
 
 
