@@ -1,6 +1,7 @@
 # Project-specific
 logs/
 tags
+slurm-jobs/
 
 # Mac OS
 .DS_Store

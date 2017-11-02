@@ -92,6 +92,8 @@ class ReplayBuffer(Parsable):
         self._count = 0
         self.capacity = capacity
 
+        logger.debug('Replay buffer took %i bytes', self.obs.nbytes + self.next_obs.nbytes + self.acs.nbytes + self.rs.nbytes + self.dones.nbytes)
+
     @property
     def next_index(self):
         return self._count % self.capacity
@@ -250,7 +252,7 @@ class DqnTrainer(Parsable):
 
         # Total tick count
         self.total_ticks = 0
-        self.q_crit = nn.SmoothL1Loss() if criterion == 'huber' else nn.MSELoss()
+        self.q_crit = nn.SmoothL1Loss(size_average=False) if criterion == 'huber' else nn.MSELoss(size_average=False)
         self.max_grad_norm = max_grad_norm
         self.exploration_type = exploration_type
         self.initial_exploration = initial_exploration
@@ -393,8 +395,6 @@ class DqnTrainer(Parsable):
                 loss.backward()
 
                 # Clip the gradient
-                # TODO compare this with clipping the TD(0) gradient over each sample, as done in the original DQN implementation. This is the same as scaling the sample's loss
-                # TODO what if we drop outliers, essentially a kind of dynamic loss clipping
                 if self.max_grad_norm > 0:
                     clip_grad_norm(self.model.parameters(), self.max_grad_norm)
 
