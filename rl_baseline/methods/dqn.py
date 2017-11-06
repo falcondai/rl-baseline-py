@@ -302,6 +302,8 @@ class DqnTrainer(Parsable):
             max_ticks : int
                 The number of ticks to sample from `self.env`.
         '''
+        # Otherwise it will never start learning
+        assert self.minimal_replay_buffer_occupancy <= self.replay_buffer.capacity, 'Replay buffer must have larger capacity than the minimal replay buffer occupancy requires.'
         # Initialize target model to be the same as the current mode
         copy_params(self.model, self.target_model)
         done, t, step, episode = True, 0, 0, 0
@@ -348,7 +350,7 @@ class DqnTrainer(Parsable):
                     break
 
             # Start training after accumulating some data
-            if self.minimal_replay_buffer_occupancy < self.replay_buffer.occupancy:
+            if self.minimal_replay_buffer_occupancy <= self.replay_buffer.occupancy:
                 # Update parameters
                 self.optimizer.zero_grad()
 
