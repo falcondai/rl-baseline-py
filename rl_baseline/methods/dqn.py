@@ -121,7 +121,7 @@ class ReplayBuffer(Parsable):
 # TODO add Trainer base class
 @method_registry.register('dqn')
 class DqnTrainer(Parsable):
-    '''Q-learning'''
+    '''The DQN algorithm from Mnih et al. _Human-level control through deep reinforcement learning_.'''
     @classmethod
     def add_args(kls, parser, prefix):
         parser.add_argument(
