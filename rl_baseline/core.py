@@ -121,9 +121,11 @@ class Parsable:
     def build_parser(kls, prefix):
         '''Creates a parser with its arguments'''
         parser = argparse.ArgumentParser()
+        # We want to call the `add_args` of the current class, that s why we need classmethod here.
         kls.add_args(parser, prefix)
         return parser
 
+    # XXX is this necessary? Can we use staticmethod instead?
     @classmethod
     def add_args(kls, parser, prefix):
         # This is an example in `DqnTrainer`

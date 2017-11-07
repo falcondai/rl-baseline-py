@@ -252,6 +252,7 @@ class DqnTrainer(Parsable):
 
         # Total tick count
         self.total_ticks = 0
+        # Use sum to better match other existing implementations (average is better for consistent reporting across different batch sizes)
         self.q_crit = nn.SmoothL1Loss(size_average=False) if criterion == 'huber' else nn.MSELoss(size_average=False)
         self.max_grad_norm = max_grad_norm
         self.exploration_type = exploration_type
@@ -306,29 +307,10 @@ class DqnTrainer(Parsable):
         assert self.minimal_replay_buffer_occupancy <= self.replay_buffer.capacity, 'Replay buffer must have larger capacity than the minimal replay buffer occupancy requires.'
         # Initialize target model to be the same as the current mode
         copy_params(self.model, self.target_model)
-        done, t, step, episode = True, 0, 0, 0
+        step, episode = 0, 0
+        ob = self.env.reset()
+        done, t, episode_return, episode_length = False, 0, 0, 0
         while t < max_ticks:
-            # Reset the environment as needed
-            if done:
-                # Report the concluded episode
-                if t > 0 and episode % episode_report_interval == 0:
-                    logger.info('Episode %i length %i return %g', episode, episode_length, episode_return)
-                    if self.train_summary_writer is not None:
-                        write_tb_event(self.train_summary_writer, episode, {
-                            'episodic/length': episode_length,
-                            'episodic/return': episode_return,
-                        })
-
-                        write_tb_event(self.train_summary_writer, t, {
-                            'metrics/episode_return': episode_return,
-                        })
-
-                # Start a new episode
-                ob = self.env.reset()
-                done = False
-                episode_return, episode_length = 0, 0
-                episode += 1
-
             # Interact and generate data
             for i in xrange(self.update_interval):
                 v_ob = self.model.preprocess_obs([ob], self.gpu_id)
@@ -346,8 +328,27 @@ class DqnTrainer(Parsable):
                 # TODO save preprocessed obs instead of raw obs?
                 self.replay_buffer.add(prev_ob, t_ac, r, ob, done)
 
+                # Reset the environment as needed
                 if done:
-                    break
+                    # Report the concluded episode
+                    if episode % episode_report_interval == 0:
+                        logger.info('Episode %i length %i return %g', episode, episode_length, episode_return)
+                        if self.train_summary_writer is not None:
+                            write_tb_event(self.train_summary_writer, episode, {
+                                'episodic/length': episode_length,
+                                'episodic/return': episode_return,
+                            })
+
+                            write_tb_event(self.train_summary_writer, t, {
+                                'metrics/episode_return': episode_return,
+                            })
+
+                    # Start a new episode
+                    ob = self.env.reset()
+                    done = False
+                    episode_return, episode_length = 0, 0
+                    episode += 1
+
 
             # Start training after accumulating some data
             if self.minimal_replay_buffer_occupancy <= self.replay_buffer.occupancy:
