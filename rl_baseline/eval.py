@@ -24,7 +24,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--checkpoint', help='Path to a specific checkpoint.')
     parser.add_argument('-n', '--n-episodes', type=int, default=10, help='Number of episodes to sample.')
     parser.add_argument('-e', '--environment', default='gym.CartPole-v0', help='Environment id.')
-    parser.add_argument('-m', '--model', default='dqn.mlp', help='Model name.')
+    parser.add_argument('-m', '--model', default=None, help='Model name.')
     parser.add_argument('-i', '--ignore', dest='ignore_saved_args', action='store_true', help='Ignore the model arguments in the checkpoint.')
     parser.add_argument('--render', action='store_true', help='Show the environment.')
     parser.add_argument('-s', '--seed', type=int, help='Random seed.')
@@ -48,24 +48,33 @@ if __name__ == '__main__':
 
     # Check for conflicting arguments
     # Evaluating a non-trainable policy
-    if not issubclass(model_registry[args.model], nn.Module):
-        assert args.checkpoint is None and args.log_dir is None, 'No checkpoint is needed for non-trainable policies.'
-        assert args.watch is False, 'Cannot use watch mode with non-trainable policies.'
-        use_checkpoint = False
+    if args.model is not None:
+        if not issubclass(model_registry[args.model], nn.Module):
+            assert args.checkpoint is None and args.log_dir is None, 'No checkpoint is needed for non-trainable policies.'
+            assert args.watch is False, 'Cannot use watch mode with non-trainable policies.'
+            use_checkpoint_args = False
+        else:
+            assert bool(args.checkpoint) ^ bool(args.log_dir), 'Please only provide path to the log directory OR a specific checkpoint.'
+            assert args.log_dir if args.watch else True, 'Watch mode requires `--log-dir` argument to present.'
+            use_checkpoint_args = True
     else:
-        assert bool(args.checkpoint) ^ bool(args.log_dir), 'Please only provide path to the log directory OR a specific checkpoint.'
-        assert args.log_dir if args.watch else True, 'Watch mode requires `--log-dir` argument to present.'
-        use_checkpoint = True
+        # Have to rely on the saved model arguments
+        use_checkpoint_args = True
+        mod_cls = None
+        logger.info('Reading model class from checkpoints.')
+
+    assert not (args.model is None and args.ignore_saved_args), 'Must provide the model name if ignoring the saved model arguments.'
 
     # Init
     env = env_registry[args.environment].make()
-    mod_cls = model_registry[args.model]
-    # Use model arguments specified via CLI
-    mod_parser = mod_cls.build_parser(prefix='m')
-    mod_args, extra_args = mod_parser.parse_known_args(extra_args)
-    logger.debug('Parsed model args %r', mod_args)
+    if args.model is not None:
+        mod_cls = model_registry[args.model]
+        # Use model arguments specified via CLI
+        mod_parser = mod_cls.build_parser(prefix='m')
+        mod_args, extra_args = mod_parser.parse_known_args(extra_args)
+        logger.debug('Parsed model args %r', mod_args)
 
-    if not use_checkpoint or args.ignore_saved_args:
+    if not use_checkpoint_args or args.ignore_saved_args:
         mod_args_dict = vars(mod_args)
 
     if len(extra_args) > 0:
@@ -105,8 +114,10 @@ if __name__ == '__main__':
                     checkpoint = torch.load(last_checkpoint_path)
                     logger.info('Loading model from %s', last_checkpoint_path)
                     # Use the saved model arguments
-                    if use_checkpoint and not args.ignore_saved_args:
+                    if use_checkpoint_args and not args.ignore_saved_args:
                         mod_args_dict = checkpoint['model_args'] or vars(mod_args)
+                    if mod_cls is None:
+                        mod_cls = model_registry[checkpoint['model_id']]
                     mod = mod_cls(env.observation_space, env.action_space, **mod_args_dict)
                     mod.load_state_dict(checkpoint['model'])
                     # Evaluate the checkpoint
@@ -140,7 +151,7 @@ if __name__ == '__main__':
                 break
     else:
         # Single-run evaluation
-        if issubclass(model_registry[args.model], nn.Module):
+        if mod_cls is None or issubclass(mod_cls, nn.Module):
             # Load checkpoint
             if args.log_dir is not None:
                 # Load the latest checkpoint from the log directory
@@ -151,8 +162,10 @@ if __name__ == '__main__':
             logger.info('Loading model from %s', checkpoint_path)
             checkpoint = torch.load(checkpoint_path)
             # Use the saved model arguments
-            if use_checkpoint and not args.ignore_saved_args:
+            if use_checkpoint_args and not args.ignore_saved_args:
                 mod_args_dict = checkpoint['model_args'] or vars(mod_args)
+            if mod_cls is None:
+                mod_cls = model_registry[checkpoint['model_id']]
             mod = mod_cls(env.observation_space, env.action_space, **mod_args_dict)
             mod.load_state_dict(checkpoint['model'])
         else:

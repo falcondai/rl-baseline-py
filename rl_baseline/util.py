@@ -36,14 +36,19 @@ def copy_params(from_model, to_model):
 
 class Saver:
     '''Keeps track of some important objects and makes checkpointing more convenient.'''
-    def __init__(self, log_dir, model, optimizer, model_args, method_args):
+    def __init__(self, log_dir, model, optimizer, model_id, model_args, method_args):
         '''
         Args:
+            model_id : str
+                Name of the model in the model registry.
             model_args : dict
+                Arguments to pass to a model's constructor.
             method_args : dict
+                Arguments to pass to a trainer's constructor.
         '''
         self.log_dir = log_dir
         self.model = model
+        self.model_id = model_id
         self.optimizer = optimizer
         self.model_args = model_args
         self.method_args = method_args
@@ -60,6 +65,7 @@ class Saver:
             'step': step,
             'optimizer': self.optimizer.state_dict(),
             'model': self.model.state_dict(),
+            'model_id': self.model_id,
             'model_args': self.model_args,
             'method_args': self.method_args,
         }

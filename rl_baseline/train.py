@@ -120,7 +120,7 @@ if __name__ == '__main__':
     # Show model statistics
     report_model_stats(mod)
     opt = opt_cls(params=mod.parameters(), lr=args.learning_rate)
-    saver = Saver(args.log_dir, mod, opt, model_args=vars(mod_args), method_args=vars(met_args))
+    saver = Saver(args.log_dir, mod, opt, model_args=vars(mod_args), method_args=vars(met_args), model_id=args.model)
     # Instantiate a separate environment for evaluation
     eval_env = env_registry[env_id].make() if args.eval_interval != 0 else None
     tra = met_cls(
