@@ -547,9 +547,7 @@ class DqnTiledTab(DqnTab):
 
     def preprocess_obs(self, obs, gpu_id=None):
         obs = self.tile_obs(obs)
-        v_obs = Variable(torch.from_numpy(obs).long())
-        if gpu_id is not None:
-            v_obs = v_obs.cuda(gpu_id)
+        v_obs = DqnTab.preprocess_obs(self, obs, gpu_id)
         return v_obs
 
 
