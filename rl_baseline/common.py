@@ -4,11 +4,12 @@ import logging
 
 import numpy as np
 from gym import spaces
+import torch
 from torch import nn
 
 from rl_baseline.util import report_perf, logger
 from rl_baseline.core import Policy, Parsable
-from rl_baseline.registry import model_registry
+from rl_baseline.registration import model_registry
 
 
 @model_registry.register('random')
@@ -122,3 +123,20 @@ def evaluate_policy(env, policy, n_episodes, render, gpu_id=None, seed=None):
     report_perf(rets, lens, log_level=logging.DEBUG)
 
     return rets, lens
+
+
+def load_model(checkpoint_path, env, model_class, model_args_dict, gpu_id):
+    if gpu_id is None:
+        # Using CPU, return the deserialized storage on CPU
+        map_location = lambda storage, loc: storage
+    else:
+        # Using GPU
+        map_location = lambda storage, loc: storage.cuda(gpu_id)
+    checkpoint = torch.load(checkpoint_path, map_location=map_location)
+    logger.info('Loading model from %s', checkpoint_path)
+    # Use the model arguments saved in checkpoint
+    model_args_dict = model_args_dict or checkpoint['model_args']
+    model_class = model_class or model_registry[checkpoint['model_id']]
+    model = model_class(env.observation_space, env.action_space, **model_args_dict)
+    model.load_state_dict(checkpoint['model'])
+    return model, checkpoint

@@ -9,28 +9,12 @@ from torch import nn
 
 from rl_baseline.registration import env_registry, model_registry
 from rl_baseline.util import log_format, fix_random_seeds, write_tb_event, get_latest_checkpoint, create_tb_writer, report_perf, extract_checkpoint_t
-from rl_baseline.common import evaluate_policy
+from rl_baseline.common import evaluate_policy, load_model
 
 
 logging.basicConfig(format=log_format)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-def load_model(checkpoint_path, model_args_dict, model_class, gpu_id):
-    if gpu_id is None:
-        # Using CPU, return the deserialized storage on CPU
-        map_location = lambda storage, loc: storage
-    else:
-        # Using GPU
-        map_location = lambda storage, loc: storage.cuda(gpu_id)
-    checkpoint = torch.load(checkpoint_path, map_location=map_location)
-    logger.info('Loading model from %s', checkpoint_path)
-    # Use the model arguments saved in checkpoint
-    model_args_dict = model_args_dict or checkpoint['model_args']
-    model_class = model_class or model_registry[checkpoint['model_id']]
-    model = model_class(env.observation_space, env.action_space, **model_args_dict)
-    model.load_state_dict(checkpoint['model'])
-    return model, checkpoint
 
 if __name__ == '__main__':
     import argparse, os, glob
@@ -71,7 +55,7 @@ if __name__ == '__main__':
             assert args.watch is False, 'Cannot use watch mode with non-trainable policies.'
             use_checkpoint_args = False
         else:
-            assert bool(args.checkpoint) ^ bool(args.log_dir), 'Please only provide path to the log directory OR a specific checkpoint.'
+            assert bool(args.checkpoint) ^ bool(args.log_dir), 'Please only provide path to a log directory OR a specific checkpoint.'
             assert args.log_dir if args.watch else True, 'Watch mode requires `--log-dir` argument to present.'
             use_checkpoint_args = True
     else:
@@ -130,6 +114,7 @@ if __name__ == '__main__':
                 try:
                     # Note that checkpoint might be incomplete
                     mod, checkpoint = load_model(
+                        env=env,
                         checkpoint_path=last_checkpoint_path,
                         model_args_dict=vars(mod_args) if not use_checkpoint_args else None,
                         model_class=mod_cls,
@@ -153,7 +138,7 @@ if __name__ == '__main__':
                             best_return = avg_ret
                     # Write eval summaries for TensorBoard
                     if args.write_summary:
-                        write_tb_event(writer, checkpoint['tick'], {
+                        write_tb_event(writer, checkpoint_t, {
                             'metrics/episode_return': avg_ret,
                         })
                     last_t = checkpoint_t
@@ -174,8 +159,8 @@ if __name__ == '__main__':
                 assert checkpoint_path != None, 'There is no *.pt checkpoint files at %s' % args.log_dir
             else:
                 checkpoint_path = args.checkpoint
-            logger.info('Loading model from %s', checkpoint_path)
             mod, checkpoint = load_model(
+                env=env,
                 checkpoint_path=checkpoint_path,
                 model_args_dict=vars(mod_args) if not use_checkpoint_args else None,
                 model_class=mod_cls,
