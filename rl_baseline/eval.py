@@ -16,6 +16,22 @@ logging.basicConfig(format=log_format)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+def load_model(checkpoint_path, model_args_dict, model_class, gpu_id):
+    if gpu_id is None:
+        # Using CPU, return the deserialized storage on CPU
+        map_location = lambda storage, loc: storage
+    else:
+        # Using GPU
+        map_location = lambda storage, loc: storage.cuda(gpu_id)
+    checkpoint = torch.load(checkpoint_path, map_location=map_location)
+    logger.info('Loading model from %s', checkpoint_path)
+    # Use the model arguments saved in checkpoint
+    model_args_dict = model_args_dict or checkpoint['model_args']
+    model_class = model_class or model_registry[checkpoint['model_id']]
+    model = model_class(env.observation_space, env.action_space, **model_args_dict)
+    model.load_state_dict(checkpoint['model'])
+    return model, checkpoint
+
 if __name__ == '__main__':
     import argparse, os, glob
 
@@ -29,6 +45,7 @@ if __name__ == '__main__':
     parser.add_argument('--render', action='store_true', help='Show the environment.')
     parser.add_argument('-s', '--seed', type=int, help='Random seed.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Show more logs.')
+    parser.add_argument('--gpu', dest='gpu_id', type=int, default=None, help='GPU id.')
     # TODO support simulators
     parser.add_argument('--sim', help='Simulator id.')
 
@@ -76,6 +93,7 @@ if __name__ == '__main__':
 
     if not use_checkpoint_args or args.ignore_saved_args:
         mod_args_dict = vars(mod_args)
+        use_checkpoint_args = False
 
     if len(extra_args) > 0:
         logger.warn('Ignoring extra arguments %r', extra_args)
@@ -111,15 +129,11 @@ if __name__ == '__main__':
                 checkpoint_t = extract_checkpoint_t(last_checkpoint_path)
                 try:
                     # Note that checkpoint might be incomplete
-                    checkpoint = torch.load(last_checkpoint_path)
-                    logger.info('Loading model from %s', last_checkpoint_path)
-                    # Use the saved model arguments
-                    if use_checkpoint_args and not args.ignore_saved_args:
-                        mod_args_dict = checkpoint['model_args'] or vars(mod_args)
-                    if mod_cls is None:
-                        mod_cls = model_registry[checkpoint['model_id']]
-                    mod = mod_cls(env.observation_space, env.action_space, **mod_args_dict)
-                    mod.load_state_dict(checkpoint['model'])
+                    mod, checkpoint = load_model(
+                        checkpoint_path=last_checkpoint_path,
+                        model_args_dict=vars(mod_args) if not use_checkpoint_args else None,
+                        model_class=mod_cls,
+                        gpu_id=args.gpu_id)
                     # Evaluate the checkpoint
                     rets, lens = evaluate_policy(env, mod, args.n_episodes, args.render)
                     report_perf(rets, lens)
@@ -133,6 +147,7 @@ if __name__ == '__main__':
                             best_model_path = os.path.join(best_model_dir, best_model_name)
                             try:
                                 os.symlink(os.path.relpath(last_checkpoint_path, best_model_dir), best_model_path)
+                                logger.info('Saved new best model at %s', best_model_path)
                             except IOError as e:
                                 logger.warn(e)
                             best_return = avg_ret
@@ -160,14 +175,11 @@ if __name__ == '__main__':
             else:
                 checkpoint_path = args.checkpoint
             logger.info('Loading model from %s', checkpoint_path)
-            checkpoint = torch.load(checkpoint_path)
-            # Use the saved model arguments
-            if use_checkpoint_args and not args.ignore_saved_args:
-                mod_args_dict = checkpoint['model_args'] or vars(mod_args)
-            if mod_cls is None:
-                mod_cls = model_registry[checkpoint['model_id']]
-            mod = mod_cls(env.observation_space, env.action_space, **mod_args_dict)
-            mod.load_state_dict(checkpoint['model'])
+            mod, checkpoint = load_model(
+                checkpoint_path=checkpoint_path,
+                model_args_dict=vars(mod_args) if not use_checkpoint_args else None,
+                model_class=mod_cls,
+                gpu_id=args.gpu_id)
         else:
             # Non-trainable models
             mod = mod_cls(env.observation_space, env.action_space)
