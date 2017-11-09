@@ -128,7 +128,7 @@ class DqnTrainer(Parsable):
             kls.prefix_arg_name('criterion', prefix),
             dest='criterion',
             choices=['l2', 'huber'],
-            default='l2',
+            default='huber',
             help='Loss functional.')
         parser.add_argument(
             kls.prefix_arg_name('max-grad-norm', prefix),
@@ -201,8 +201,8 @@ class DqnTrainer(Parsable):
             kls.prefix_arg_name('gamma', prefix),
             dest='gamma',
             type=float,
-            default=1,
-            help='The future reward discount.',
+            default=0.99,
+            help='The reward discount factor.',
         )
         # Add replay buffer's arguments
         ReplayBuffer.add_args(parser, prefix)
@@ -349,7 +349,6 @@ class DqnTrainer(Parsable):
                     episode_return, episode_length = 0, 0
                     episode += 1
 
-
             # Start training after accumulating some data
             if self.minimal_replay_buffer_occupancy <= self.replay_buffer.occupancy:
                 # Update parameters
@@ -386,7 +385,12 @@ class DqnTrainer(Parsable):
                 # Compute r + gamma * V(s')
                 target_q = v_rs + self.gamma * vas
                 q_loss = self.q_crit(ac_qs, target_q.detach())
-
+                # q_loss = (ac_qs - target_q.detach())**2
+                # idx = q_loss.gt(1.)
+                # print((0.1 / q_loss[idx]).detach())
+                # q_loss[idx].mul_((0.1 / q_loss[idx]).detach())
+                # q_loss[idx] = torch.mul(q_loss[idx], (1. / q_loss[idx]).detach())
+                # print(q_loss[idx])
                 # Total objective function
                 loss = q_loss
 
@@ -415,6 +419,7 @@ class DqnTrainer(Parsable):
                             'train_extra/grad_norm': grad_norm.data[0],
                             'train_extra/param_norm': param_norm.data[0],
                             'train_extra/epsilon': epsilon,
+                            'train_extra/max_value': vas.max()[0].data[0],
                         })
 
                 # Evaluate the model
@@ -581,7 +586,7 @@ class DqnDeepMindModel(DqnModel):
         self.activation_fn = f.relu
 
     def forward(self, v_obs):
-        # Normalize
+        # Normalize RGB values
         net = v_obs / 255.
         net = self.cnn0(net)
         net = self.activation_fn(net)
