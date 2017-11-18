@@ -140,3 +140,19 @@ def load_model(checkpoint_path, env, model_class, model_args_dict, gpu_id):
     model = model_class(env.observation_space, env.action_space, **model_args_dict)
     model.load_state_dict(checkpoint['model'])
     return model, checkpoint
+
+def transition_sampler(env, pi, render):
+    '''
+    Args:
+        pi : ob -> ac
+            Policy function that maps observation to action.
+    '''
+    ob = env.reset()
+    while True:
+        ac = pi(ob)
+        next_ob, r, done, extra = env.step(ac)
+        if render:
+            env.render()
+        # Return (S, A, R, S') transitions
+        yield ob, ac, r, next_ob, done, extra
+        ob = env.reset() if done else next_ob

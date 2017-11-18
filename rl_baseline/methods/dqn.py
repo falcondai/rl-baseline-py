@@ -358,7 +358,7 @@ class DqnTrainer(Parsable):
                 obs, acs, rs, next_obs, dones = self.replay_buffer.sample_sars(self.batch_size)
 
                 # Action-value estimation
-                # TD(0)-error = Q(s, a) - (r + gamma * V(s')) where V(s') = max_a' Q(s', a')
+                # TD(0)-error = (r + gamma * V(s')) - Q(s, a) where V(s') = max_a' Q(s', a')
                 v_acs = Variable(torch.from_numpy(acs)).view(-1, 1)
                 v_acs = self.to_model_device(v_acs)
                 v_obs = self.model.preprocess_obs(obs, self.gpu_id)
@@ -385,12 +385,6 @@ class DqnTrainer(Parsable):
                 # Compute r + gamma * V(s')
                 target_q = v_rs + self.gamma * vas
                 q_loss = self.q_crit(ac_qs, target_q.detach())
-                # q_loss = (ac_qs - target_q.detach())**2
-                # idx = q_loss.gt(1.)
-                # print((0.1 / q_loss[idx]).detach())
-                # q_loss[idx].mul_((0.1 / q_loss[idx]).detach())
-                # q_loss[idx] = torch.mul(q_loss[idx], (1. / q_loss[idx]).detach())
-                # print(q_loss[idx])
                 # Total objective function
                 loss = q_loss
 

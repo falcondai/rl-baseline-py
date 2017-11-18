@@ -3,6 +3,8 @@ import argparse
 from gym import Env, Wrapper
 from gym.envs.registration import EnvSpec
 
+from rl_baseline.util import logger, write_tb_event
+
 
 class Spec:
     '''Store the entry point and parameters for items on the reigistry.'''
@@ -137,3 +139,98 @@ class Parsable:
         if prefix != '':
             return '--%s-%s' % (prefix, arg_name)
         return '--%s' % arg_name
+
+
+class Trainer:
+    '''Abstraction for RL algorithms.'''
+    @classmethod
+    def scaffold(kls, env_id, model_id, simulator_id):
+        '''High level interface to hydrate string registry keys into live models and environments and simulators for the learning algorithm, e.g., creating an extra target model for DQN. This should generate keyword arguments for `__init__`. Must be overridden in subclasses.'''
+        from rl_baseline.registration import env_registry, model_registry, sim_registry
+        kwargs = dict(
+            env = env_registry[env_id].make(),
+            model = model_registry[model_id],
+        )
+        return kwargs
+
+    def __init__(self, env, model, train_summary_writer=None, eval_summary_writer=None, eval_env=None, n_eval_episodes=0, gpu_id=None):
+        # TODO change model to agent to avoid confusion
+        assert (eval_env is not None) == (n_eval_episodes > 0), '`eval_env` is needed iff `n_eval_episodes` is greater than 0.'
+        self.env = env
+        self.model = model
+        self.eval_env = eval_env
+        self.train_summary_writer = train_summary_writer
+        self.eval_summary_writer = eval_summary_writer
+        self.n_eval_episodes = n_eval_episodes
+        # GPU utility
+        self.gpu_id = gpu_id
+        self.to_model_device = lambda t : t.cuda(self.gpu_id) if self.gpu_id is not None else t.cpu()
+        # Logging
+        self.episode = 0
+        self.tick = 0
+        self.step = 0
+        self.cumulative_reward_per_tick = 0
+        self.cumulative_reward_per_episode = 0
+        self._running_episode_return = 0
+        self._running_episode_length = 0
+
+    def update_stats(self, reward, done):
+        self._running_episode_return += reward
+        self._running_episode_length += 1
+        self.cumulative_reward_per_tick = (self.tick * self.cumulative_reward_per_tick + reward) / (self.tick + 1)
+        self.tick += 1
+        # Update episodic stats
+        if done:
+            self.cumulative_reward_per_episode = (self.episode * self.cumulative_reward_per_episode + self._running_episode_return) / (self.episode + 1)
+            self.episode += 1
+            # Report stats
+            self.report_episode(self._running_episode_return, self._running_episode_length)
+            self._running_episode_return = 0
+            self._running_episode_length = 0
+
+    def report_episode(self, episode_return, episode_length):
+        '''Report statistics of an episode.'''
+        logger.info('Episode %i length %i return %g', self.episode, episode_length, episode_return)
+        if self.train_summary_writer is not None:
+            write_tb_event(self.train_summary_writer, self.episode, {
+                'episodic/length': episode_length,
+                'episodic/return': episode_return,
+            })
+
+            write_tb_event(self.train_summary_writer, self.tick, {
+                'metrics/episode_return': episode_return,
+            })
+
+    def report_step(self, n_eval_episodes):
+        '''Report progress of learning.'''
+        # Online metrics (online view)
+        logger.info('Step %i cumulative return / tick %.2f cumulative return / episode %.2f', self.step, self.cumulative_reward_per_tick, self.cumulative_reward_per_episode)
+        if self.train_summary_writer is not None:
+            write_tb_event(self.train_summary_writer, self.tick, {
+                'metrics/cumulative_return_per_tick': self.cumulative_reward_per_tick,
+                'metrics/cumulative_reward_per_episode': self.cumulative_reward_per_episode,
+            })
+        # Offline metrics (policy optimization view)
+        if n_eval_episodes > 0:
+            # Run a few evaluation runs
+            rets, lens = self.evaluate(n_eval_episodes=n_eval_episodes)
+            report_perf(rets, lens)
+            if self.eval_summary_writer is not None:
+                write_tb_event(self.eval_summary_writer, self.tick, {
+                    'metrics/episode_return': np.mean(rets),
+                })
+
+    def evaluate(self, n_eval_episodes):
+        '''Evaluate the current model by running on a few episodes.'''
+        assert self.eval_env is not None, 'Must use a separate environment `eval_env` to evaluate.'
+        return evaluate_policy(env=self.eval_env, policy=self.model, n_episodes=n_eval_episodes, render=False, gpu_id=self.gpu_id)
+
+    def sample_action(self, ob):
+        return self.model.act(ob)
+
+    def transition_sampler(self):
+        # from rl_baseline.common import transition_sampler
+        return transition_sampler(self.env, self.sample_action, render=False)
+
+    def train_for(self, max_ticks):
+        raise NotImplementedError

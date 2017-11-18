@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 # Set up logging format
-log_format = '[%(asctime)s %(filename)s:%(lineno)d] %(levelname)s: %(message)s'
+log_format = '%(levelname)s [%(asctime)s %(filename)s:%(lineno)d] %(message)s'
 logging.basicConfig(format=log_format)
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)

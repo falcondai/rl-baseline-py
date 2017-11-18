@@ -10,5 +10,9 @@ PyTorch implementation of RL baseline algorithms.
 - Mnih et al. _Human-level control through deep reinforcement learning_
 - Hasselt et al. _Deep Reinforcement Learning with Double Q-learning_
 
+## References
+- Sutton & Barto. _Reinforcement Learning: An Introduction_ (1st ed)
+- Henderson et al. _Deep Reinforcement Learning that Matters_
+
 ## Author
 Falcon Dai (me@falcondai.com)
