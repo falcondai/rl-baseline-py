@@ -2,19 +2,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import torch
 from six.moves import xrange
 
 import numpy as np
 from gym import spaces
+import torch
+from torch.autograd import Variable
 
 from rl_baseline.registry import method_registry, model_registry
+from rl_baseline.methods.dqn import DqnTab
 from rl_baseline.core import Trainer
 from rl_baseline.util import linear_schedule
 
 
 @method_registry.register('td-q')
 class QTrainer(Trainer):
+    '''Backward view implementation of TD(lambda) Q-learning with eligibility traces.'''
     @classmethod
     def scaffold(kls, env_id, model_id, simulator_id=None):
         assert simulator_id == None, 'TD(lambda) does not use simulator.'
@@ -130,6 +133,7 @@ class QTrainer(Trainer):
 
 @method_registry.register('td-sarsa')
 class SarsaTrainer(Trainer):
+    '''Backward view implementation of TD(lambda) Sarsa-learning with eligibility traces.'''
     @classmethod
     def scaffold(kls, env_id, model_id, simulator_id=None):
         assert simulator_id == None, 'TD(lambda) does not use simulator.'
@@ -141,14 +145,14 @@ class SarsaTrainer(Trainer):
         )
         return kwargs
 
-    def __init__(self, env, model, td_lambda, gamma, exploration_type, initial_exploration, terminal_exploration, exploration_start, exploration_length, initial_step_size, step_size_schedule, eligibility_type, train_summary_writer=None, eval_summary_writer=None, eval_env=None, n_eval_episodes=0, gpu_id=None):
+    def __init__(self, env, model, optimizer, td_lambda, gamma, exploration_type, initial_exploration, terminal_exploration, exploration_start, exploration_length, step_size_schedule, eligibility_type, train_summary_writer=None, eval_summary_writer=None, eval_env=None, n_eval_episodes=0, gpu_id=None):
         # TODO relax this to non-discrete finite spaces
         assert isinstance(env.observation_space, spaces.Discrete), 'env.observation_space must be discrete.'
         assert isinstance(env.action_space, spaces.Discrete), 'env.action_space must be discrete.'
         assert exploration_type in ['softmax', 'epsilon'], 'Only supports `softmax` and `epsilon`-greedy exploration strategies.'
         assert eligibility_type in ['accumulating', 'replacing'], 'Only supports `accumulating` and `replacing` eligibility traces.'
 
-        super().__init__(env=env, model=model, eval_env=eval_env, n_eval_episodes=n_eval_episodes, gpu_id=gpu_id)
+        super().__init__(env=env, model=model, optimizer=optimizer, eval_env=eval_env, n_eval_episodes=n_eval_episodes, gpu_id=gpu_id)
 
         self.td_lambda = td_lambda
         self.n_states = self.env.observation_space.n
@@ -160,9 +164,7 @@ class SarsaTrainer(Trainer):
         self.terminal_exploration = terminal_exploration
         self.exploration_start = exploration_start
         self.exploration_length = exploration_length
-        self.initial_step_size = initial_step_size
         self.step_size_schedule = step_size_schedule
-        # self.criterion = nn.MSELoss(size_average=False)
 
     def sample_exploratory_action(self, q, exploration):
         if self.exploration_type == 'softmax':
@@ -180,21 +182,20 @@ class SarsaTrainer(Trainer):
                 t_ac = np.random.randint(self.n_actions)
             else:
                 # Greedy action
-                # max_q, ac = q.max(1)
-                # t_ac = ac.data[0]
-                t_ac = np.argmax(q)
+                max_q, ac = q.max(1)
+                t_ac = ac.data[0]
         return t_ac
 
     def sample_action_q(self, ob):
-        # v_obs = self.model.preprocess_obs([ob])
-        # q = self.model.q(v_obs)
-        q = self.model[ob]
+        v_obs = self.model.preprocess_obs([ob])
+        q = self.model.q(v_obs)
         exploration = linear_schedule(self.initial_exploration, self.terminal_exploration, self.exploration_start, self.exploration_length, self.tick)
         return self.sample_exploratory_action(q, exploration), q
 
     def train_for(self, max_ticks):
         # Set eligibility traces to 0
-        e = np.zeros((self.n_states, self.n_actions))
+        e = [Variable(torch.zeros(param.size())) for param in self.model.parameters()]
+
         ob = self.env.reset()
         ac, q = self.sample_action_q(ob)
         while self.tick < max_ticks:
@@ -203,38 +204,43 @@ class SarsaTrainer(Trainer):
             next_ac, next_q = self.sample_action_q(next_ob)
 
             # Compute TD-error = (r + gamma * Q(s', a')) - Q(s, a)
-            # v_obs = self.model.preprocess_obs([next_ob])
-            # next_va = self.model.va(v_obs) if not done else 0
-            # next_va = self.model[ob].max() if not done else 0
-            # q_ac = extra['td.q'][ac]
-            next_va = next_q[next_ac] if not done else 0
-            q_ac = q[ac]
+            next_va = next_q[0, next_ac] if not done else 0
+            q_ac = q[0, ac]
             delta = (r + self.gamma * next_va) - q_ac
-            # Update the eligibility trace of (s, a)
-            if self.eligibility_type == 'accumulating':
-                e[ob, ac] += 1
-            elif self.eligibility_type == 'replacing':
-                e[ob, ac] = 1
-            if delta != 0:
-                # Update action values
-                alpha = self.step_size_schedule(self.tick)
-                # TODO make this more efficient
-                for s in xrange(self.n_states):
-                    for a in xrange(self.n_actions):
-                        self.model[s, a] += alpha * delta * e[s, a]
-                        e[s, a] *= self.td_lambda * self.gamma
+
+            self.optimizer.zero_grad()
+            # Compute grad Q(s, a)
+            q_ac.backward()
+            # Update action values
+            alpha = self.step_size_schedule(self.tick)
+            for ep, param in zip(e, self.model.parameters()):
+                # Update the eligibility traces
+                if self.eligibility_type == 'accumulating':
+                    ep += param.grad.detach()
+                else:
+                    # In this case self.eligibility_type == 'replacing'
+                    raise NotImplementedError
+                param.grad = - alpha * delta.detach() * ep
+                ep *= self.td_lambda * self.gamma
+            self.optimizer.step()
 
             self.report_step(self.n_eval_episodes)
             self.step += 1
 
             if done:
-                e = np.zeros((self.n_states, self.n_actions))
+                # Set eligibility traces to 0
+                for ep in e:
+                    ep.data.zero_()
+                # Start another episode
                 ob = self.env.reset()
                 ac, q = self.sample_action_q(ob)
             else:
                 ac, q = next_ac, next_q
                 ob = next_ob
 
-            # Stop
-            if max_ticks < self.tick:
-                break
+# TODO implement LSTDQ
+
+
+# Register tabular models
+model_registry.register_to(DqnTab, 'td-q.tab')
+model_registry.register_to(DqnTab, 'td-sarsa.tab')

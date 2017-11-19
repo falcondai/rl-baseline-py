@@ -153,11 +153,12 @@ class Trainer:
         )
         return kwargs
 
-    def __init__(self, env, model, train_summary_writer=None, eval_summary_writer=None, eval_env=None, n_eval_episodes=0, gpu_id=None):
+    def __init__(self, env, model, optimizer, train_summary_writer=None, eval_summary_writer=None, eval_env=None, n_eval_episodes=0, gpu_id=None):
         # TODO change model to agent to avoid confusion
         assert (eval_env is not None) == (n_eval_episodes > 0), '`eval_env` is needed iff `n_eval_episodes` is greater than 0.'
         self.env = env
         self.model = model
+        self.optimizer = optimizer
         self.eval_env = eval_env
         self.train_summary_writer = train_summary_writer
         self.eval_summary_writer = eval_summary_writer
@@ -209,6 +210,9 @@ class Trainer:
             write_tb_event(self.train_summary_writer, self.tick, {
                 'metrics/cumulative_return_per_tick': self.cumulative_reward_per_tick,
                 'metrics/cumulative_reward_per_episode': self.cumulative_reward_per_episode,
+            })
+            write_tb_event(self.train_summary_writer, self.episode, {
+                'episodic/cumulative_reward_per_episode': self.cumulative_reward_per_episode,
             })
         # Offline metrics (policy optimization view)
         if n_eval_episodes > 0:
