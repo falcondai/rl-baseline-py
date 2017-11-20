@@ -441,7 +441,7 @@ class DqnTab(DqnModel):
             kls.prefix_arg_name('init-q', prefix),
             dest='initial_q',
             type=float,
-            default=0,
+            default=1,
             help='Initial Q-values. Positive to encourage exploration. None for random initialization of Q-values.',
         )
 
@@ -563,6 +563,8 @@ class DqnDeepMindModel(DqnModel):
         super().__init__(ob_space)
 
         assert isinstance(ac_space, spaces.Discrete), '`ac_space` has to be an instance of `spaces.Discrete`.'
+        assert ob_space.shape == (4, 84, 84), 'Expect an observation space of shape (4, 84, 84).'
+
         self.ob_width = 84
         self.n_prev_frames = 4
         self.n_actions = ac_space.n

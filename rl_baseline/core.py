@@ -224,17 +224,10 @@ class Trainer:
                     'metrics/episode_return': np.mean(rets),
                 })
 
-    def evaluate(self, n_eval_episodes):
+    def evaluate(self, eval_env, n_eval_episodes, render=False):
         '''Evaluate the current model by running on a few episodes.'''
-        assert self.eval_env is not None, 'Must use a separate environment `eval_env` to evaluate.'
-        return evaluate_policy(env=self.eval_env, policy=self.model, n_episodes=n_eval_episodes, render=False, gpu_id=self.gpu_id)
-
-    def sample_action(self, ob):
-        return self.model.act(ob)
-
-    def transition_sampler(self):
-        # from rl_baseline.common import transition_sampler
-        return transition_sampler(self.env, self.sample_action, render=False)
+        assert eval_env is not None, 'Must use a separate environment `eval_env` to evaluate.'
+        return evaluate_policy(env=eval_env, policy=self.model, n_episodes=n_eval_episodes, render=render, gpu_id=self.gpu_id)
 
     def train_for(self, max_ticks):
         raise NotImplementedError
