@@ -31,6 +31,15 @@ def linear_schedule(start_y, end_y, start_t, end_t, t):
         return end_y
     return (end_y - start_y) * (t - start_t) / (end_t - start_t) + start_y
 
+def polynomial_schedule(p, start_y, end_y, start_t, end_t, t):
+    '''Return t ^ -p'''
+    if t < start_t:
+        return start_y
+    if end_t < t:
+        return end_y
+    t = min(end_t, t)
+    return end_y + (start_y - end_y) * (1 - t / end_t) ** p
+
 def copy_params(from_model, to_model):
     to_model.load_state_dict(from_model.state_dict())
 
