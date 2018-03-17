@@ -52,6 +52,45 @@ class Policy:
         raise NotImplementedError
 
 
+class NonstationaryMemorylessPolicy(Policy):
+    '''The abstraction of an non-stationary memory-less agent, i.e., pi(s, t).'''
+    def _act(self, ob, t):
+        raise NotImplementedError
+
+
+class MemoryPolicy(Policy):
+    '''The abstraction of an agent with memory.'''
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Internal memory state
+        self.mem = None
+
+    def _act(self, ob, mem):
+        raise NotImplementedError
+
+    def _reset(self):
+        '''Resets the memory of the policy to an initial state.'''
+        raise NotImplementedError
+
+    def act(self, ob, mem=None):
+        '''
+        Args:
+            ob : observation
+            mem : memory
+                If None, use the internal memory state.
+        '''
+        if mem is None:
+            mem = self.mem
+        return self._act(ob, mem)
+
+    def reset(self, mem=None):
+        '''Sets the internal memory state to `mem`, to the initial state if None.'''
+        if mem is None:
+            self._reset()
+        else:
+            self.mem = mem
+
+
 class StochasticPolicy(Policy):
     def __init__(self, *args, **kwargs):
         super(StochasticPolicy, self).__init__(*args, **kwargs)
@@ -185,7 +224,7 @@ class Trainer:
             self.cumulative_reward_per_episode = (self.episode * self.cumulative_reward_per_episode + self._running_episode_return) / (self.episode + 1)
             self.episode += 1
             # Report stats
-            self.report_episode(self._running_episode_return, self._running_episode_length)
+            # self.report_episode(self._running_episode_return, self._running_episode_length)
             self._running_episode_return = 0
             self._running_episode_length = 0
 

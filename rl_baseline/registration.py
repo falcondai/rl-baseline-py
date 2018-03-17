@@ -4,7 +4,7 @@ from torch import optim
 
 from rl_baseline.registry import env_registry, optimizer_registry, method_registry, model_registry, sim_registry
 from rl_baseline.core import Spec, GymEnvSpecWrapper
-from rl_baseline.methods import a2c, dqn
+from rl_baseline.methods import a2c, dqn, td
 from rl_baseline.envs.atari import AtariDqnEnvWrapper
 from rl_baseline.sims.cartpole import CartPoleSim
 from rl_baseline.sims.atari import AtariSim

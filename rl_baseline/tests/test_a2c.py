@@ -6,6 +6,7 @@ def test_a2c_on_cartpole():
     from torch import optim
 
     from rl_baseline.methods.a2c import A2cTrainer, A2cLinearModel
+    from rl_baseline.common import evaluate_policy
 
     # Fix seed for replication
     seed = 777
@@ -22,4 +23,8 @@ def test_a2c_on_cartpole():
     # Train for a little
     tra.train_for(500, 20, step_report_interval=10)
 
-    # TODO evaluate and assert its performance
+    # Evaluate the trained policy
+    rets, lens = evaluate_policy(env, mod, n_episodes=100, render=False)
+
+
+test_a2c_on_cartpole()

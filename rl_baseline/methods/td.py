@@ -1,3 +1,5 @@
+# Backward view implementation of TD(lambda) control algorithms with eligibility traces
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -137,12 +139,6 @@ class QTrainer(SarsaTrainer):
         return kwargs
 
     def __init__(self, env, model, optimizer, td_lambda, gamma, exploration_type, initial_exploration, terminal_exploration, exploration_start, exploration_length, step_size_schedule, eligibility_type, train_summary_writer=None, eval_summary_writer=None, eval_env=None, n_eval_episodes=0, gpu_id=None):
-        # TODO relax this to non-discrete finite spaces
-        assert isinstance(env.observation_space, spaces.Discrete), 'env.observation_space must be discrete.'
-        assert isinstance(env.action_space, spaces.Discrete), 'env.action_space must be discrete.'
-        assert exploration_type in ['softmax', 'epsilon'], 'Only supports `softmax` and `epsilon`-greedy exploration strategies.'
-        assert eligibility_type in ['accumulating', 'replacing'], 'Only supports `accumulating` and `replacing` eligibility traces.'
-
         super().__init__(
             env=env,
             model=model,
@@ -178,7 +174,6 @@ class QTrainer(SarsaTrainer):
             next_va = next_q.max(1)[0] if not done else 0
             q_ac = q[0, ac]
             delta = (float(r) + self.gamma * next_va) - q_ac
-            print(next_q, next_va, delta)
 
             self.optimizer.zero_grad()
             # Compute grad Q(s, a)

@@ -1,9 +1,7 @@
 from six.moves import xrange
 
-import logging
-
 import numpy as np
-from gym import spaces, undo_logger_setup
+from gym import spaces
 import torch
 from torch import nn, optim
 from torch.autograd import Variable
@@ -11,15 +9,7 @@ import torch.nn.functional as f
 
 from rl_baseline.core import StochasticPolicy, StateValue
 from rl_baseline.registry import method_registry, model_registry, optimizer_registry
-from rl_baseline.util import global_norm, log_format, write_tb_event
-
-
-# Set up logger
-undo_logger_setup()
-logging.basicConfig(format=log_format)
-logger = logging.getLogger()
-# Set the logging level
-logger.setLevel(logging.DEBUG)
+from rl_baseline.util import global_norm, logger, write_tb_event
 
 
 # TODO make it Parsable-compatible

@@ -4,10 +4,12 @@ from six.moves import xrange
 
 import numpy as np
 from torch import optim
+from torch import nn
+import torch.nn.functional as f
 
 from rl_baseline.registration import env_registry
 from rl_baseline.envs.atari import AtariDqnEnvWrapper
-from rl_baseline.methods.dqn import DqnDeepMindModel, DqnTrainer, ReplayBuffer
+from rl_baseline.methods.dqn import DqnDeepMindModel, DqnTrainer, ReplayBuffer, DqnModel
 from rl_baseline.util import copy_params, create_tb_writer, Saver, logger, report_model_stats
 
 class DqnAtariReplayBuffer(ReplayBuffer):
@@ -47,6 +49,27 @@ class DqnAtariReplayBuffer(ReplayBuffer):
         return self.obs[idxes], self.acs[idxes], self.rs[idxes], self.assemble_next_obs(self.obs[idxes], self.next_frames[idxes]), self.dones[idxes]
 
 
+class SmallerDqnCnnMlp(DqnDeepMindModel):
+    def __init__(self, ob_space, ac_space):
+        DqnModel.__init__(self, ob_space)
+
+        self.ob_width = 84
+        self.n_prev_frames = 4
+        self.n_actions = ac_space.n
+        # Assume that the input is an 4 x 84 x 84 image (4 stacked grayscale frames)
+        self.cnn0 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+        # 20 x 20 x 32
+        self.cnn1 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        # 9 x 9 x 64
+        self.cnn2 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        # 7 x 7 x 64 = 3136
+        self.n_pre_fc = 7 * 7 * 64
+        self.fc0 = nn.Linear(self.n_pre_fc, 256)
+        # 256
+        self.fc1 = nn.Linear(256, self.n_actions)
+        self.activation_fn = f.relu
+
+
 if __name__ == '__main__':
     import argparse, os
     parser = argparse.ArgumentParser()
@@ -66,7 +89,8 @@ if __name__ == '__main__':
     discount_factor = 0.99
     # action_repeat = 4
     update_frequency = 4
-    learning_rate = 0.00025
+    # learning_rate = 0.00025
+    learning_rate = 0.0025
     gradient_momentum = 0.95
     squared_gradient_momentum = 0.95
     min_squared_gradient = 0.01
@@ -76,7 +100,7 @@ if __name__ == '__main__':
     replay_start_size = 50000
     # no_op_max = 30
 
-    # The delta clipping done at https://github.com/deepmind/dqn/blob/master/dqn/NeuralQLearner.lua#L224 is equivalent to using huber loss
+    # The ad hoc looking delta clipping done at https://github.com/deepmind/dqn/blob/master/dqn/NeuralQLearner.lua#L224 is equivalent to using huber loss
     loss_type = 'huber'
 
     # Make a properly preprocessed environment
@@ -93,8 +117,10 @@ if __name__ == '__main__':
     # Model according to supplement and official published code:
     # https://github.com/deepmind/dqn/blob/master/dqn/convnet_atari3.lua
     model = DqnDeepMindModel(env.observation_space, env.action_space)
+    # model = SmallerDqnCnnMlp(env.observation_space, env.action_space)
     report_model_stats(model)
     target_model = DqnDeepMindModel(env.observation_space, env.action_space)
+    # target_model = SmallerDqnCnnMlp(env.observation_space, env.action_space)
     if args.gpu_id is not None:
         # Move models to GPU
         model = model.cuda(args.gpu_id)
@@ -106,6 +132,12 @@ if __name__ == '__main__':
         eps=min_squared_gradient,
         alpha=squared_gradient_momentum,
     )
+    # opt = optim.Adam(
+    #     params=model.parameters(),
+    #     lr=1e-4,
+    #     eps=1e-4,
+    # )
+
     # TODO Restore from a checkpoint
     if args.restore_from is not None:
         logger.info('Restoring checkpoint from %s', args.restore_from)
@@ -114,12 +146,13 @@ if __name__ == '__main__':
         opt.load_state_dict(checkpoint['optimizer'])
 
     # Logging utilities
+    # FIXME segfault on slurm
     # train_summary_dir = os.path.join(args.log_dir, 'train')
     # train_writer = create_tb_writer(train_summary_dir)
     # eval_summary_dir = os.path.join(args.log_dir, 'eval')
     # eval_writer = create_tb_writer(eval_summary_dir)
     train_writer, eval_writer = None, None
-    saver = Saver(args.log_dir, model, opt, None, None)
+    saver = Saver(args.log_dir, model, opt, None, None, 'dqn.deepmind')
     eval_env = env_registry['gym.%sDeterministic-v4' % args.env].make()
     eval_env = AtariDqnEnvWrapper(
         env=eval_env,
@@ -138,15 +171,22 @@ if __name__ == '__main__':
         criterion=loss_type,
         max_grad_norm=0,
         target_update_interval=target_network_update_frequency,
+        # target_update_interval=500,
         exploration_type='epsilon',
         initial_exploration=initial_exploration,
+        # initial_exploration=1,
         terminal_exploration=final_exploration,
+        # terminal_exploration=0.01,
         exploration_start=replay_start_size,
+        # exploration_start=0,
         exploration_length=final_exploration_frame,
+        # exploration_length=2 * 10**5,
         minimal_replay_buffer_occupancy=replay_start_size,
+        # minimal_replay_buffer_occupancy=10 ** 4,
         double_dqn=False,
         update_interval=update_frequency,
         batch_size=minibatch_size,
+        # batch_size=256,
         gamma=discount_factor,
         eval_env=eval_env,
         train_summary_writer=train_writer,
@@ -156,16 +196,18 @@ if __name__ == '__main__':
     )
     # HACK use a more efficient custom replay buffer
     trainer.replay_buffer = DqnAtariReplayBuffer(replay_memory_size, env.observation_space, env.action_space)
+    # trainer.replay_buffer = DqnAtariReplayBuffer(10 ** 4, env.observation_space, env.action_space)
 
     # Extended table 2, 50M frames
-    long_training_frames = 50 * 10**6
+    long_training_frames = 50 * 10 ** 6
     # Extended table 3, 10M frames
-    short_training_frames = 10 * 10**6
+    short_training_frames = 10 * 10 ** 6
 
     trainer.train_for(
         max_ticks=short_training_frames,
+        # max_ticks=2 * 10 ** 6,
         episode_report_interval=1,
-        step_report_interval=1,
+        step_report_interval=500,
         checkpoint_interval=10000,
         eval_interval=0,
         n_eval_episodes=2,

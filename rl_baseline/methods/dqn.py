@@ -554,6 +554,40 @@ class DqnTiledTab(DqnTab):
 
 
 # TODO CNN model
+# @model_registry.register('dqn.cnn')
+# class DqnCnn(DqnMlp):
+#     @classmethod
+#     def add_args(kls, parser, prefix):
+#         super().add_args(parser, prefix)
+#         parser.add_argument(
+#             kls.prefix_arg_name('cnn-')
+#         )
+
+
+# class DqnMemoryModel(MemoryPolicy, DqnModel):
+#     def __init__(self, ob_space):
+#         super().__init__(ob_space=ob_space)
+#
+#     def preprocess_obs(self, obs, mem=None):
+#         '''
+#         Returns suitable `Variable` for use with the model's `forward` calls.
+#
+#         Args:
+#             obs : [`self.ob_space`]
+#                 A list of observations.
+#             mem : Memory || None
+#                 If None, use the internal memory.
+#         '''
+#         if isinstance(self.ob_space, spaces.Box):
+#             v_obs = Variable(torch.FloatTensor(np.asarray(obs, dtype='float')))
+#         elif isinstance(self.ob_space, spaces.Discrete):
+#             v_obs = Variable(torch.from_numpy(np.asarray(obs, dtype='long')))
+#         # else:
+#         #     raise TypeError('`ob` cannot be preprocessed.')
+#         return v_obs
+#
+#     def q(self, v_obs):
+#         return self.forward(v_obs, )
 
 
 @model_registry.register('dqn.deepmind')
