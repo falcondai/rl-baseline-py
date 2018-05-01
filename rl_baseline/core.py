@@ -1,5 +1,6 @@
 import argparse
 
+import numpy as np
 from gym import Env, Wrapper
 from gym.envs.registration import EnvSpec
 
@@ -192,7 +193,7 @@ class Trainer:
         )
         return kwargs
 
-    def __init__(self, env, model, optimizer, train_summary_writer=None, eval_summary_writer=None, eval_env=None, n_eval_episodes=0, gpu_id=None):
+    def __init__(self, env, model, optimizer, train_summary_writer=None, eval_summary_writer=None, eval_env=None, n_eval_episodes=0, gpu_id=None, np_seed=None):
         # TODO change model to agent to avoid confusion
         assert (eval_env is not None) == (n_eval_episodes > 0), '`eval_env` is needed iff `n_eval_episodes` is greater than 0.'
         self.env = env
@@ -213,6 +214,9 @@ class Trainer:
         self.cumulative_reward_per_episode = 0
         self._running_episode_return = 0
         self._running_episode_length = 0
+        self.moving_avg_coeff = 0.8
+        # Seed
+        self.random = np.random.RandomState(seed=np_seed)
 
     def update_stats(self, reward, done):
         self._running_episode_return += reward
@@ -221,7 +225,8 @@ class Trainer:
         self.tick += 1
         # Update episodic stats
         if done:
-            self.cumulative_reward_per_episode = (self.episode * self.cumulative_reward_per_episode + self._running_episode_return) / (self.episode + 1)
+            # self.cumulative_reward_per_episode = (self.episode * self.cumulative_reward_per_episode + self._running_episode_return) / (self.episode + 1)
+            self.cumulative_reward_per_episode = self.moving_avg_coeff * self.cumulative_reward_per_episode + (1 - self.moving_avg_coeff) * self._running_episode_return
             self.episode += 1
             # Report stats
             # self.report_episode(self._running_episode_return, self._running_episode_length)
